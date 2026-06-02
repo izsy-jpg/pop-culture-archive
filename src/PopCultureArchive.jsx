@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Papa from "papaparse";
 
 const DECADES = ["1950s", "1960s", "1970s", "1980s", "1990s", "2000s", "2010s", "2020s"];
 const DECADE_RANGE = {
@@ -24,6 +25,147 @@ const COLORS = [
   "#58c7e6",
   "#b16be8",
 ];
+
+const TMDB_API_BASE = "https://api.themoviedb.org/3";
+const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY || "71790251f947beef32f979fe5ba1c0fe";
+const TMDB_MOVIE_START_YEAR = 1958;
+const TMDB_MOVIE_END_YEAR = 2026;
+const TMDB_MOVIE_PAGES_PER_YEAR = 1;
+const BILLBOARD_DATASET_URLS = Object.values(import.meta.glob("../dataset/billboard/*.csv", {
+  eager: true,
+  query: "?url",
+  import: "default",
+})).sort();
+
+function toNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+async function parseCsv(path) {
+  const response = await fetch(path);
+  if (!response.ok) {
+    throw new Error(`Could not load ${path}`);
+  }
+
+  const csv = await response.text();
+  return Papa.parse(csv, {
+    header: true,
+    skipEmptyLines: true,
+  }).data;
+}
+
+async function fetchTmdbJson(path, params = {}) {
+  const url = new URL(`${TMDB_API_BASE}${path}`);
+  url.search = new URLSearchParams({
+    api_key: TMDB_API_KEY,
+    language: "en-US",
+    ...params,
+  });
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Could not load TMDB data from ${path}`);
+  }
+
+  return response.json();
+}
+
+async function fetchTmdbMoviePage(year, page) {
+  const data = await fetchTmdbJson("/discover/movie", {
+    include_adult: "false",
+    include_video: "false",
+    page: String(page),
+    primary_release_year: String(year),
+    sort_by: "popularity.desc",
+  });
+
+  return { year, data };
+}
+
+function normalizeMovie(movie, genreMap) {
+  const year = Number.parseInt(movie.release_date?.slice(0, 4), 10);
+  if (!Number.isFinite(year) || !movie.title) return null;
+
+  const genres = (movie.genre_ids || [])
+    .map((genreId) => genreMap.get(genreId))
+    .filter(Boolean);
+
+  return {
+    title: movie.title,
+    year,
+    genres,
+    genre: genres[0] || "Unknown",
+    rating: toNumber(movie.vote_average),
+    votes: Math.round(toNumber(movie.vote_count)),
+    director: "",
+  };
+}
+
+async function fetchTmdbMovies() {
+  const movieRequests = [];
+  for (let year = TMDB_MOVIE_START_YEAR; year <= TMDB_MOVIE_END_YEAR; year += 1) {
+    for (let page = 1; page <= TMDB_MOVIE_PAGES_PER_YEAR; page += 1) {
+      movieRequests.push(fetchTmdbMoviePage(year, page));
+    }
+  }
+
+  const [genreData, ...moviePages] = await Promise.all([
+    fetchTmdbJson("/genre/movie/list"),
+    ...movieRequests,
+  ]);
+
+  const genreMap = new Map((genreData.genres || []).map((genre) => [genre.id, genre.name]));
+  const moviesById = new Map();
+  const yearTotals = {};
+
+  moviePages
+    .forEach(({ year, data }) => {
+      if (data.page === 1) {
+        yearTotals[year] = data.total_results || 0;
+      }
+
+      (data.results || []).forEach((movie) => {
+        if (movie.id) moviesById.set(movie.id, movie);
+      });
+    });
+
+  return {
+    movies: [...moviesById.values()].map((movie) => normalizeMovie(movie, genreMap)).filter(Boolean),
+    yearTotals,
+  };
+}
+
+function normalizeSong(row) {
+  const year = toNumber(row.Year);
+  if (!year || !row.Song) return null;
+
+  return {
+    title: row.Song,
+    artist: row.Artist || "Unknown artist",
+    year,
+    weeks: Math.round(toNumber(row["Weeks in Charts"])),
+    genre: row.broad_genre || row.lastfm_top_tag || "Billboard Hot 100",
+    appearances: Math.max(1, Math.round(toNumber(row["Weeks in Charts"], 1))),
+  };
+}
+
+function buildMovieGenreYears(movies) {
+  const counts = new Map();
+
+  movies.forEach((movie) => {
+    const genres = movie.genres.length ? movie.genres : ["Unknown"];
+    genres.forEach((genre) => {
+      const key = `${genre}|${movie.year}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+  });
+
+  return [...counts.entries()].map(([key, count]) => {
+    const [genre, year] = key.split("|");
+    return { genre, year: Number(year), count };
+  });
+}
 
 function StatCard({ label, value, sub }) {
   return (
@@ -143,7 +285,7 @@ function GenreLineChart({ series, years, xLabel, yLabel }) {
 function SearchResult({ item, mode }) {
   const detail = mode === "movies"
     ? `${item.year} / ${(item.genres || [item.genre]).join(", ")}`
-    : `${item.artist} / ${item.year} / peak #${item.peak}`;
+    : `${item.artist} / ${item.year} / ${item.genre}`;
   const metric = mode === "movies" ? item.rating.toFixed(1) : `${item.weeks} wks`;
   const subMetric = mode === "movies"
     ? `${item.votes.toLocaleString()} IMDb votes`
@@ -183,6 +325,7 @@ export default function PopCultureArchive() {
   const [searchQuery, setSearchQuery] = useState("");
   const [yearRange, setYearRange] = useState([1958, 2026]);
   const [movies, setMovies] = useState([]);
+  const [movieYearTotals, setMovieYearTotals] = useState({});
   const [songs, setSongs] = useState([]);
   const [movieGenreYears, setMovieGenreYears] = useState([]);
   const [loadState, setLoadState] = useState("loading");
@@ -190,22 +333,17 @@ export default function PopCultureArchive() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [movieResponse, songResponse, genreResponse] = await Promise.all([
-          fetch("/data/movies.json"),
-          fetch("/data/hot100.json"),
-          fetch("/data/movie-genre-years.json"),
+        const [movieData, billboardRowsByYear] = await Promise.all([
+          fetchTmdbMovies(),
+          Promise.all(BILLBOARD_DATASET_URLS.map((url) => parseCsv(url))),
         ]);
-        if (!movieResponse.ok || !songResponse.ok || !genreResponse.ok) {
-          throw new Error("Generated data files are missing.");
-        }
-        const [movieRows, songRows, genreRows] = await Promise.all([
-          movieResponse.json(),
-          songResponse.json(),
-          genreResponse.json(),
-        ]);
-        setMovies(movieRows);
-        setSongs(songRows);
-        setMovieGenreYears(genreRows);
+        const normalizedMovies = movieData.movies;
+        const normalizedSongs = billboardRowsByYear.flat().map(normalizeSong).filter(Boolean);
+
+        setMovies(normalizedMovies);
+        setMovieYearTotals(movieData.yearTotals);
+        setSongs(normalizedSongs);
+        setMovieGenreYears(buildMovieGenreYears(normalizedMovies));
         setLoadState("ready");
       } catch (error) {
         console.error(error);
@@ -282,9 +420,27 @@ export default function PopCultureArchive() {
   const decadeCounts = useMemo(() => {
     return DECADES.map((decade) => {
       const [lo, hi] = DECADE_RANGE[decade];
+      if (mode === "movies") {
+        let count = 0;
+        for (let year = lo; year <= hi; year += 1) {
+          count += movieYearTotals[year] || 0;
+        }
+        return { decade, count };
+      }
       return { decade, count: data.filter((item) => item.year >= lo && item.year <= hi).length };
     });
-  }, [data]);
+  }, [data, mode, movieYearTotals]);
+
+  const hasMovieSubsetFilter = mode === "movies" && (selectedGenre !== "all" || searchQuery.trim());
+  const visibleMovieTotal = useMemo(() => {
+    if (mode !== "movies" || hasMovieSubsetFilter) return filtered.length;
+
+    let count = 0;
+    for (let year = activeYearStart; year <= activeYearEnd; year += 1) {
+      count += movieYearTotals[year] || 0;
+    }
+    return count || filtered.length;
+  }, [mode, hasMovieSubsetFilter, filtered.length, activeYearStart, activeYearEnd, movieYearTotals]);
 
   const maxDecadeCount = Math.max(...decadeCounts.map((item) => item.count), 1);
   const topItem = mode === "movies"
@@ -396,11 +552,17 @@ export default function PopCultureArchive() {
         ))}
       </div>
 
-      {loadState === "loading" && <div style={{ color: "#9a9ab4", marginBottom: 24 }}>Loading generated CSV data...</div>}
-      {loadState === "error" && <div style={{ color: "#f06a5f", marginBottom: 24 }}>Could not load generated data. Run npm run data once.</div>}
+      {loadState === "loading" && <div style={{ color: "#9a9ab4", marginBottom: 24 }}>Loading TMDB movies and Billboard CSV data...</div>}
+      {loadState === "error" && <div style={{ color: "#f06a5f", marginBottom: 24 }}>Could not load TMDB movies or Billboard CSV data.</div>}
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 28 }}>
-        <StatCard label={`Total ${mode}`} value={filtered.length.toLocaleString()} sub={`of ${data.length.toLocaleString()} loaded`} />
+        <StatCard
+          label={`Total ${mode}`}
+          value={(mode === "movies" ? visibleMovieTotal : filtered.length).toLocaleString()}
+          sub={mode === "movies"
+            ? `${filtered.length.toLocaleString()} sampled records loaded`
+            : `of ${data.length.toLocaleString()} loaded`}
+        />
         {mode === "movies" && <StatCard label="Avg rating" value={avgRating} />}
         {mode === "songs" && <StatCard label="Total chart weeks" value={totalWeeks.toLocaleString()} />}
         {topItem && (
@@ -410,7 +572,7 @@ export default function PopCultureArchive() {
             sub={mode === "movies" ? `${topItem.rating.toFixed(1)} rating` : `${topItem.weeks} weeks`}
           />
         )}
-        <StatCard label={mode === "movies" ? "Genres" : "Source"} value={mode === "movies" ? allGenres.length : "Hot 100"} />
+        <StatCard label={mode === "movies" ? "Genres" : "Source"} value={mode === "movies" ? allGenres.length : "Billboard"} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.45fr) minmax(280px, 0.85fr)", gap: 20, marginBottom: 28 }}>
