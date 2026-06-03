@@ -182,7 +182,7 @@ function buildMovieGenreYears(movies) {
   });
 }
 
-function StatCard({ label, value, sub }) {
+function StatCard({ label, value, sub, fontSize = 26 }) {
   return (
     <div style={{
       background: "#17172b",
@@ -192,7 +192,7 @@ function StatCard({ label, value, sub }) {
       minWidth: 150,
     }}>
       <div style={{ fontSize: 12, color: "#9a9ab4", marginBottom: 6, textTransform: "uppercase" }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: "#fff", lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: fontSize, fontWeight: 700, color: "#fff", lineHeight: 1.1 }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: "#4ade80", marginTop: 6 }}>{sub}</div>}
     </div>
   );
@@ -455,7 +455,7 @@ export default function PopCultureArchive() {
       if (mode === "songs" && selectedGenre !== "all" && item.genre !== selectedGenre) return false;
       if (q) {
         if (mode === "songs") {
-          if (item.title.toLowerCase() !== q) return false;
+          if (!item.title.toLowerCase().includes(q) && !item.artist.toLowerCase().includes(q)) return false;
         } else {
           const searchable = [
             item.title,
@@ -554,14 +554,22 @@ export default function PopCultureArchive() {
   const maxDecadeCount = Math.max(...decadeCounts.map((item) => item.count), 1);
   const topItem = mode === "movies"
     ? [...filtered].sort((a, b) => b.rating - a.rating || b.votes - a.votes)[0]
-    : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak)[0];
+    : mode === "songs" 
+      ? [...filtered].sort((a, b) => (b.historicalStats?.totalWeeks || b.weeks) - (a.historicalStats?.totalWeeks || a.weeks))[0]
+      : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak)[0];
+  const [displayLimit, setDisplayLimit] = useState(RESULT_LIMIT);
+
+  // Reset limit when query or mode changes
+  useEffect(() => {
+    setDisplayLimit(RESULT_LIMIT);
+  }, [searchQuery, mode]);
+
   const topResults = useMemo(() => {
-    // Already filtered by yearRange in the 'filtered' memo
     const sorted = mode === "movies"
       ? [...filtered].sort((a, b) => b.rating - a.rating || b.votes - a.votes)
-      : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak);
-    return sorted.slice(0, RESULT_LIMIT);
-  }, [filtered, mode, searchQuery]);
+      : [...filtered].sort((a, b) => (b.historicalStats?.totalWeeks || b.weeks) - (a.historicalStats?.totalWeeks || a.weeks));
+    return sorted.slice(0, displayLimit);
+  }, [filtered, mode, displayLimit]);
   const homeYearlyTopMovies = useMemo(() => {
     const topByYear = new Map();
     movies.forEach((movie) => {
@@ -583,6 +591,7 @@ export default function PopCultureArchive() {
   const totalWeeks = mode === "songs"
     ? filtered.reduce((sum, item) => sum + (item.historicalStats?.totalWeeks || item.weeks), 0)
     : null;
+  const songMatch = mode === "songs" && searchQuery.trim() && filtered.length === 1 ? filtered[0] : null;
 
   return (
     <div style={{
@@ -772,32 +781,41 @@ export default function PopCultureArchive() {
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 28 }}>
-        <StatCard
-          label={`Total ${mode}`}
-          value={(mode === "movies" ? visibleMovieTotal : filtered.length).toLocaleString()}
-          sub={mode === "movies"
-            ? `${filtered.length.toLocaleString()} sampled records loaded`
-            : `of ${data.length.toLocaleString()} loaded`}
-        />
-        {mode === "movies" && <StatCard label="Avg rating" value={`★ ${avgRating}`} />}
-        {mode === "songs" && <StatCard label="Total chart weeks" value={totalWeeks.toLocaleString()} />}
-        {topItem && (
-          <StatCard
-            label={mode === "movies" ? "Top rated" : "Longest charting"}
-            value={
-              <div style={{
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                maxWidth: "100%"
-              }} title={topItem.title}>
-                {topItem.title}
-              </div>
-            }
-            sub={mode === "movies" ? `${topItem.rating.toFixed(1)} rating` : `${topItem.weeks} weeks`}
-          />
+        {songMatch && (
+          <>
+            <StatCard label="Artist" value={songMatch.artist} fontSize={20} />
+            <StatCard label="Genre" value={songMatch.genre} fontSize={20} />
+            <StatCard label="Total charting weeks" value={totalWeeks.toLocaleString()} fontSize={20} />
+            <StatCard label="Charted years" value={songMatch.years.join(", ")} fontSize={20} />
+          </>
         )}
-        <StatCard label={mode === "movies" ? "Genres" : "Source"} value={mode === "movies" ? allGenres.length : "Billboard"} />
+        {!songMatch && (
+           <>
+             <StatCard label={`Total ${mode}`} value={filtered.length.toLocaleString()} fontSize={20} />
+             {mode === "songs" && <StatCard label="Total chart weeks" value={totalWeeks.toLocaleString()} fontSize={20} />}
+             {topItem && (
+               <StatCard
+                 label={mode === "movies" ? "Top rated" : "Longest charting"}
+                 value={
+                   <div style={{
+                     overflow: "hidden",
+                     textOverflow: "ellipsis",
+                     whiteSpace: "nowrap",
+                     maxWidth: "100%"
+                   }} title={topItem.title}>
+                     {topItem.title}
+                   </div>
+                 }
+                 sub={mode === "movies" 
+                   ? `${topItem.rating.toFixed(1)} rating` 
+                   : `${topItem.historicalStats?.totalWeeks || topItem.weeks} total weeks`}
+                   fontSize={20}
+               />
+             )}
+           </>
+        )}
+        {mode === "movies" && <StatCard label="Avg rating" value={`★ ${avgRating}`} fontSize={20} />}
+        <StatCard label={mode === "movies" ? "Genres" : "Source"} value={mode === "movies" ? allGenres.length : "Billboard"} fontSize={20} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.45fr) minmax(280px, 0.85fr)", gap: 20, marginBottom: 28 }}>
@@ -849,10 +867,20 @@ export default function PopCultureArchive() {
           : topResults.map((item) => (
             <SearchResult key={`${mode}-${item.title}-${item.artist || item.year}`} item={item} mode={mode} />
           ))}
-        {filtered.length > RESULT_LIMIT && (
-          <div style={{ paddingTop: 12, fontSize: 12, color: "#666680" }}>
-            Showing top {RESULT_LIMIT} of {filtered.length.toLocaleString()} results
-          </div>
+        {filtered.length > displayLimit && (
+          <button onClick={() => setDisplayLimit(limit => limit + RESULT_LIMIT)}
+            style={{
+              marginTop: 16,
+              background: "#2a2a4a",
+              color: "#fff",
+              border: "none",
+              padding: "8px 16px",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontSize: 13,
+            }}>
+            Load more
+          </button>
         )}
       </div>
         </>
