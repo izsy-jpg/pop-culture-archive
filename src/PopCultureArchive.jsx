@@ -366,33 +366,54 @@ function ArtistReliabilityChart({ songs }) {
         {/* Data Points */}
         {artistData.map(artist => {
           const isHighlighted = importantOutliers.has(artist.name);
-          const posX = x(artist.totalAppearances);
-          const posY = y(artist.avgWeeks);
-          
-          // Intelligent label positioning to prevent clipping
-          const labelLeft = posX > width - 200;
-          const labelTop = posY < margin.top + 40;
-
           return (
             <g key={artist.name}>
-              <circle cx={posX} cy={posY} r={isHighlighted ? 6 : 3}
+              <circle cx={x(artist.totalAppearances)} cy={y(artist.avgWeeks)}
+                r={isHighlighted ? 6 : 3}
                 fill={isHighlighted ? "#f4c430" : "#e85d8e"}
                 opacity={isHighlighted ? 1 : 0.55}
                 style={{ cursor: "pointer" }}
                 onMouseEnter={(e) => setTooltip({ x: e.clientX, y: e.clientY, artist })}
                 onMouseLeave={() => setTooltip(null)} />
-              {isHighlighted && (
-                <text x={posX + (labelLeft ? -10 : 10)} 
-                      y={posY + (labelTop ? 15 : -8)} 
-                      textAnchor={labelLeft ? "end" : "start"}
-                      fill="#f4c430" fontSize="12" fontWeight="700">{artist.name}</text>
-              )}
             </g>
           );
         })}
+        
+        {/* Highlighted Labels */}
+        {(() => {
+          const processed = [];
+          const minGap = 15;
+          const labelOffset = 10; // Fixed consistent offset
+          return currentHighlights
+            .sort((a, b) => y(a.avgWeeks) - y(b.avgWeeks))
+            .map(artist => {
+              const posX = x(artist.totalAppearances);
+              const posY = y(artist.avgWeeks);
+              
+              const labelLeft = posX > width - 200;
+              let labelX = posX + (labelLeft ? -labelOffset : labelOffset);
+              let labelY = posY;
+
+              // Collision avoidance
+              for (const p of processed) {
+                if (Math.abs(p.x - labelX) < 80 && Math.abs(p.y - labelY) < minGap) {
+                  labelY = p.y + minGap;
+                }
+              }
+              processed.push({ x: labelX, y: labelY });
+
+              return (
+                <g key={`label-${artist.name}`}>
+                  <text x={labelX}
+                        y={labelY + 4}
+                        textAnchor={labelLeft ? "end" : "start"}
+                        fill="#f4c430" fontSize="12" fontWeight="700">{artist.name}</text>
+                </g>
+              );
+            });
+        })()}
+
         {/* Axis Titles */}
-        <text x={margin.left + innerWidth / 2} y={height - 20} textAnchor="middle" fill="#ffffff" fontSize="14" fontWeight="600">Reach: number of chart appearances</text>
-        <text x={20} y={margin.top + innerHeight / 2} textAnchor="middle" fill="#ffffff" fontSize="14" fontWeight="600" transform={`rotate(-90 20 ${margin.top + innerHeight / 2})`}>Longevity: avg weeks per song</text>
       </svg>
       
       {/* Legend */}
