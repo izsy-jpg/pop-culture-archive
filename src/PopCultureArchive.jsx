@@ -243,7 +243,7 @@ function SongPerformanceChart({ songs, yearStart, yearEnd }) {
               {song.title.length > 22 ? song.title.slice(0, 17) + "…" : song.title}
             </text>
             <rect x={margin.left} y={y(index) + 3} width={x(song.weeksInYear)} height={rowHeight - 15} fill={COLORS[index % COLORS.length]} 
-                onMouseEnter={(e) => setTooltip({ x: e.clientX, y: e.clientY, title: song.title, weeks: song.weeksInYear })}
+                onMouseEnter={(e) => setTooltip({ x: e.clientX, y: e.clientY, title: song.title, artist: song.artist, weeks: song.weeksInYear })}
                 onMouseLeave={() => setTooltip(null)} />
             <text x={margin.left + x(song.weeksInYear) + 2} y={y(index) + 12} fill="#fff" fontSize="15">
               {song.weeksInYear}
@@ -253,7 +253,9 @@ function SongPerformanceChart({ songs, yearStart, yearEnd }) {
       </svg>
       {tooltip && (
         <div style={{ position: "fixed", left: tooltip.x + 10, top: tooltip.y + 10, background: "#17172b", padding: "5px", color: "#fff", fontSize: 12, border: "1px solid #2a2a4a", pointerEvents: "none" }}>
-          {tooltip.title}: {tooltip.weeks} weeks
+          <div>{tooltip.title}</div>
+          <div style={{ color: "#9a9ab4" }}>{tooltip.artist}</div>
+          <div>{tooltip.weeks} weeks</div>
         </div>
       )}
     </div>
@@ -283,6 +285,131 @@ function niceMax(value) {
   const normalized = value / magnitude;
   const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
   return niceNormalized * magnitude;
+}
+
+function ArtistReliabilityChart({ songs }) {
+  const [tooltip, setTooltip] = useState(null);
+
+  const artistData = useMemo(() => {
+    const artistStats = new Map();
+    songs.forEach(song => {
+      const artists = song.artist.split(/ & | ft\. |, /i).map(a => a.trim()).filter(Boolean);
+      artists.forEach(artist => {
+        if (!artistStats.has(artist)) {
+          artistStats.set(artist, { name: artist, totalAppearances: 0, totalWeeks: 0 });
+        }
+        const stats = artistStats.get(artist);
+        stats.totalAppearances += 1;
+        stats.totalWeeks += song.weeks;
+      });
+    });
+    return [...artistStats.values()].map(a => ({
+      ...a,
+      avgWeeks: a.totalWeeks / a.totalAppearances
+    })).filter(a => a.totalAppearances >= 1).sort((a, b) => b.totalAppearances - a.totalAppearances);
+  }, [songs]);
+
+  const width = 800;
+  const height = 450;
+  const margin = { top: 80, right: 150, bottom: 80, left: 80 };
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+
+  const maxReach = Math.max(...artistData.map(a => a.totalAppearances), 1) * 1.1;
+  const maxAvg = Math.max(...artistData.map(a => a.avgWeeks), 1) * 1.1;
+
+  const x = (val) => margin.left + ((val - 0) / maxReach) * innerWidth;
+  const y = (val) => margin.top + innerHeight - ((val - 0) / maxAvg) * innerHeight;
+
+  const avgX = artistData.reduce((s, a) => s + a.totalAppearances, 0) / (artistData.length || 1);
+  const avgY = artistData.reduce((s, a) => s + a.avgWeeks, 0) / (artistData.length || 1);
+
+  const importantOutliers = new Set(["Taylor Swift", "Madonna", "Drake", "The Weeknd", "Morgan Wallen"]);
+  const currentHighlights = artistData.filter(a => importantOutliers.has(a.name));
+
+  const xTicks = Array.from({ length: 6 }, (_, i) => Math.round((maxReach / 5) * i));
+  const yTicks = Array.from({ length: 6 }, (_, i) => Math.round((maxAvg / 5) * i));
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div style={{ fontSize: 13, color: "#8b8ba3", marginBottom: 15 }}>
+        Artists further right appear on the chart more often (Reach). Artists higher up stay on the chart longer per song (Longevity).
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {/* Axes */}
+        {yTicks.map(tick => (
+          <g key={tick}>
+            <line x1={margin.left} y1={y(tick)} x2={width - margin.right} y2={y(tick)} stroke="#20203a" />
+            <text x={margin.left - 10} y={y(tick) + 4} textAnchor="end" fill="#8b8ba3" fontSize="12">{Math.round(tick)}</text>
+          </g>
+        ))}
+        {xTicks.map(tick => (
+          <g key={tick}>
+            <line x1={x(tick)} y1={margin.top} x2={x(tick)} y2={height - margin.bottom} stroke="#20203a" />
+            <text x={x(tick)} y={height - margin.bottom + 20} textAnchor="middle" fill="#8b8ba3" fontSize="12">{Math.round(tick)}</text>
+          </g>
+        ))}
+
+        {/* Reference Lines */}
+        <line x1={x(avgX)} y1={margin.top} x2={x(avgX)} y2={height - margin.bottom} stroke="#ffffff44" strokeDasharray="4 3" />
+        <text x={x(avgX) + 5} y={margin.top - 10} fill="#4ade80" fontSize="11" transform={`rotate(-90 ${x(avgX) + 5} ${margin.top - 10})`}>Median reach</text>
+        
+        <line x1={margin.left} y1={y(avgY)} x2={width - margin.right} y2={y(avgY)} stroke="#ffffff44" strokeDasharray="4 3" />
+        <text x={width - margin.right + 5} y={y(avgY) + 4} fill="#4ade80" fontSize="11">Median longevity</text>
+
+        {/* Quadrant Labels */}
+        <text x={width - margin.right - 10} y={margin.top + 20} textAnchor="end" fill="#82c7f5" fontSize="14" fontWeight="bold">High reach + high longevity</text>
+        <text x={margin.left + 10} y={margin.top + 20} textAnchor="start" fill="#82c7f5" fontSize="14" fontWeight="bold">High longevity</text>
+        <text x={width - margin.right - 10} y={height - margin.bottom - 10} textAnchor="end" fill="#82c7f5" fontSize="14" fontWeight="bold">High reach</text>
+        <text x={margin.left + 10} y={height - margin.bottom - 10} textAnchor="start" fill="#82c7f5" fontSize="14" fontWeight="bold">Lower reach + lower longevity</text>
+
+        {/* Data Points */}
+        {artistData.map(artist => {
+          const isHighlighted = importantOutliers.has(artist.name);
+          const posX = x(artist.totalAppearances);
+          const posY = y(artist.avgWeeks);
+          
+          // Intelligent label positioning to prevent clipping
+          const labelLeft = posX > width - 200;
+          const labelTop = posY < margin.top + 40;
+
+          return (
+            <g key={artist.name}>
+              <circle cx={posX} cy={posY} r={isHighlighted ? 6 : 3}
+                fill={isHighlighted ? "#f4c430" : "#e85d8e"}
+                opacity={isHighlighted ? 1 : 0.55}
+                style={{ cursor: "pointer" }}
+                onMouseEnter={(e) => setTooltip({ x: e.clientX, y: e.clientY, artist })}
+                onMouseLeave={() => setTooltip(null)} />
+              {isHighlighted && (
+                <text x={posX + (labelLeft ? -10 : 10)} 
+                      y={posY + (labelTop ? 15 : -8)} 
+                      textAnchor={labelLeft ? "end" : "start"}
+                      fill="#f4c430" fontSize="12" fontWeight="700">{artist.name}</text>
+              )}
+            </g>
+          );
+        })}
+        {/* Axis Titles */}
+        <text x={margin.left + innerWidth / 2} y={height - 20} textAnchor="middle" fill="#ffffff" fontSize="14" fontWeight="600">Reach: number of chart appearances</text>
+        <text x={20} y={margin.top + innerHeight / 2} textAnchor="middle" fill="#ffffff" fontSize="14" fontWeight="600" transform={`rotate(-90 20 ${margin.top + innerHeight / 2})`}>Longevity: avg weeks per song</text>
+      </svg>
+      
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 15, justifyContent: "center", marginTop: 10, fontSize: 13 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, background: "#f4c430", borderRadius: "50%" }} /> Highlighted artists</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, background: "#e85d8e", borderRadius: "50%" }} /> Other artists</div>
+      </div>
+
+      {tooltip && (
+        <div style={{ position: "fixed", left: tooltip.x + 12, top: tooltip.y + 12, background: "#17172b", padding: "8px 12px", color: "#fff", fontSize: 12, border: "1px solid #2a2a4a", borderRadius: 6, pointerEvents: "none", zIndex: 10 }}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>{tooltip.artist.name}</div>
+          <div style={{ color: "#9a9ab4" }}>Appearances: <span style={{ color: "#fff" }}>{tooltip.artist.totalAppearances}</span></div>
+          <div style={{ color: "#9a9ab4" }}>Avg weeks/song: <span style={{ color: "#f4c430" }}>{tooltip.artist.avgWeeks.toFixed(1)}</span></div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TimelineBar({ decade, count, max, mode }) {
@@ -344,8 +471,7 @@ function GenreStackedAreaChart({ series, xLabel }) {
     return activeGenres.size > 0 && !activeGenres.has(genre);
   };
 
-  // Dynamically calculate interval to prevent overlap
-  const tickDensity = Math.max(1, Math.floor(yearSpan / 10));
+  const tickInterval = Math.max(1, Math.floor(yearSpan / 10));
   const xTicks = [];
   for (let y = minYear; y <= maxYear; y += tickInterval) {
     // Only add a tick if there's enough space
@@ -1495,7 +1621,7 @@ export default function PopCultureArchive() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 20, marginBottom: 28 }}>
                 <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
                   <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>
-                    {mode === "movies" ? "Genre share over time" : "Hot 100 songs by year"}
+                    {mode === "movies" ? "Genre share over time" : "Genres across the year"}
                     <span style={{ color: "#82c7f5", marginLeft: 8 }}>{activeYearStart === activeYearEnd ? activeYearStart : `${activeYearStart}-${activeYearEnd}`}</span>
                   </h3>
                   {mode === "movies"
@@ -1507,12 +1633,11 @@ export default function PopCultureArchive() {
                       : <GenreStackedAreaChart series={chartSeries.series} xLabel="Year" />}
                 </div>
                 <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20, display: "flex", flexDirection: "column" }}>
-                  <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>{mode === "movies" ? "Rating distribution by decade" : "By decade"}</h3>
+                  <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>{mode === "movies" ? "Rating distribution by decade" : "Artist reliability"}</h3>
                   {mode === "movies"
                     ? <><InsightText>{ratingDistributionInsight}</InsightText><RatingDistributionChart distributions={movieRatingDistributions} selectedDecade={selectedDecade} onDecadeSelect={setSelectedDecade} /></>
-                    : <div style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(0, 1fr))", gap: 8, flex: "1 1 auto", minHeight: 250, alignItems: "stretch", overflow: "hidden" }}>
-                        {decadeCounts.map(({ decade, count }) => <TimelineBar key={decade} decade={decade} count={count} max={maxDecadeCount} mode={mode} />)}
-                      </div>}
+                    : <ArtistReliabilityChart songs={filtered} />
+                  }
                 </div>
               </div>
 
@@ -1545,7 +1670,7 @@ export default function PopCultureArchive() {
                   {mode === "songs" && (
                     <label style={{ display: "flex", alignItems: "center", gap: 8, color: "#fff", fontSize: 13, cursor: "pointer" }}>
                       <input type="checkbox" checked={removeChristmasSongs} onChange={(e) => setRemoveChristmasSongs(e.target.checked)} />
-                      Hide Christmas
+                      Hide Christmas songs
                     </label>
                   )}
                 </div>
