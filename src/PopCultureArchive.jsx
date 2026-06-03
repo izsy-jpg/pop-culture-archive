@@ -304,7 +304,7 @@ function TimelineBar({ decade, count, max, mode }) {
   );
 }
 
-function GenreStackedAreaChart({ series, years, xLabel }) {
+function GenreStackedAreaChart({ series, xLabel }) {
   const [activeGenres, setActiveGenres] = useState(new Set());
   const [hoveredGenre, setHoveredGenre] = useState(null);
   const [tooltip, setTooltip] = useState(null);
@@ -313,13 +313,23 @@ function GenreStackedAreaChart({ series, years, xLabel }) {
   const margin = { top: 18, right: 28, bottom: 56, left: 70 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
-  const minYear = Math.min(...years);
-  const maxYear = Math.max(...years);
+
+  // Dynamically derive years from the series data itself
+  const years = useMemo(() => {
+    const allYears = new Set();
+    series.forEach(s => s.points.forEach(p => allYears.add(p.year)));
+    return [...allYears].sort((a, b) => a - b);
+  }, [series]);
+
+  const minYear = years.length > 0 ? years[0] : 1980;
+  const maxYear = years.length > 0 ? years[years.length - 1] : 2026;
   const yearSpan = Math.max(maxYear - minYear, 1);
+  
   const rawMax = Math.max(...years.map(y => series.reduce((sum, s) => sum + (s.points.find(p => p.year === y)?.count || 0), 0)), 1);
   const x = (year) => margin.left + ((year - minYear) / yearSpan) * innerWidth;
   const y = (count) => margin.top + innerHeight - (count / rawMax) * innerHeight;
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map(pct => Math.round(pct * rawMax));
+  
   const cumulative = new Map(years.map((year) => [year, 0]));
 
   const toggleGenre = (genre) => {
@@ -334,11 +344,14 @@ function GenreStackedAreaChart({ series, years, xLabel }) {
     return activeGenres.size > 0 && !activeGenres.has(genre);
   };
 
-  // Calculate ticks: show a tick every ~5 years for better coverage
-  const tickInterval = Math.max(1, Math.floor(yearSpan / 10));
+  // Dynamically calculate interval to prevent overlap
+  const tickDensity = Math.max(1, Math.floor(yearSpan / 10));
   const xTicks = [];
   for (let y = minYear; y <= maxYear; y += tickInterval) {
-    xTicks.push(y);
+    // Only add a tick if there's enough space
+    if (xTicks.length === 0 || (x(y) - x(xTicks[xTicks.length - 1])) > 40) {
+      xTicks.push(y);
+    }
   }
 
   return (
@@ -351,7 +364,10 @@ function GenreStackedAreaChart({ series, years, xLabel }) {
           </g>
         ))}
         {series.map((item, index) => {
-          const dimmed = isDimmed(item.name);
+          const isDimmed = hoveredGenre 
+            ? hoveredGenre !== item.name 
+            : (activeGenres.size > 0 && !activeGenres.has(item.name));
+          
           const upper = item.points.map((point) => {
             const base = cumulative.get(point.year) || 0;
             const top = base + point.count;
@@ -366,15 +382,15 @@ function GenreStackedAreaChart({ series, years, xLabel }) {
           return (
             <polygon key={item.name} points={[...upper, ...lower].join(" ")} 
               fill={COLORS[index % COLORS.length]}
-              opacity={dimmed ? 0.15 : 0.8}
+              opacity={isDimmed ? 0.15 : 0.8}
               style={{ transition: "opacity 0.2s, fill 0.2s", cursor: "pointer" }}
-              onMouseEnter={(e) => { setHoveredGenre(item.name); setTooltip({ x: e.clientX, y: e.clientY, name: item.name }); }}
-              onMouseLeave={() => { setHoveredGenre(null); setTooltip(null); }}
+              onMouseEnter={() => setHoveredGenre(item.name)}
+              onMouseLeave={() => setHoveredGenre(null)}
               onClick={() => toggleGenre(item.name)} />
           );
         })}
-        {xTicks.map((year) => (
-          <text key={year} x={x(year)} y={height - 26} textAnchor="middle" fill="#8b8ba3" fontSize="10">{year}</text>
+        {[minYear, Math.round((minYear + maxYear) / 2), maxYear].map((year) => (
+          <text key={year} x={x(year)} y={height - 26} textAnchor="middle" fill="#8b8ba3" fontSize="12">{year}</text>
         ))}
       </svg>
       {tooltip && (
@@ -389,9 +405,9 @@ function GenreStackedAreaChart({ series, years, xLabel }) {
             onMouseEnter={() => setHoveredGenre(item.name)}
             onMouseLeave={() => setHoveredGenre(null)}
             style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, 
-              color: isDimmed(item.name) ? "#666" : "#c6c6d8", 
+              color: (activeGenres.size === 0 || activeGenres.has(item.name)) ? "#c6c6d8" : "#666", 
               background: "none", border: "none", cursor: "pointer", transition: "color 0.2s" }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: isDimmed(item.name) ? "#343452" : COLORS[index % COLORS.length] }} />
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: (activeGenres.size === 0 || activeGenres.has(item.name)) ? COLORS[index % COLORS.length] : "#343452" }} />
             {item.name}
           </button>
         ))}
@@ -1064,10 +1080,6 @@ export default function PopCultureArchive() {
         }
         aggregated.get(key).yearlyWeeks.set(song.year, song.weeks);
       });
-      console.log("DEBUG: Aggregated map size:", aggregated.size);
-      if (aggregated.size > 0) {
-        console.log("DEBUG: Example aggregated song:", [...aggregated.values()][0]);
-      }
       result = [...aggregated.values()].map(s => ({
         ...s,
         years: [...s.yearlyWeeks.keys()].sort((a, b) => a - b),
@@ -1088,7 +1100,16 @@ export default function PopCultureArchive() {
   }, [filtered, mode]);
 
   const chartSeries = useMemo(() => {
-    const years = Array.from({ length: activeYearEnd - activeYearStart + 1 }, (_, index) => activeYearStart + index);
+    // Derive actual min/max years from filtered data
+    const allYears = new Set();
+    filtered.forEach(item => {
+      if (item.year) allYears.add(item.year);
+      if (item.years) item.years.forEach(y => allYears.add(y));
+    });
+    const minYear = allYears.size > 0 ? Math.min(...allYears) : activeYearStart;
+    const maxYear = allYears.size > 0 ? Math.max(...allYears) : activeYearEnd;
+    const years = Array.from({ length: maxYear - minYear + 1 }, (_, index) => minYear + index);
+
     if (mode === "songs") {
       const counts = new Map();
       const genreTotals = new Map();
@@ -1102,7 +1123,6 @@ export default function PopCultureArchive() {
         });
       });
 
-      const totalSongs = filtered.length;
       const majorGenres = [...genreTotals.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 8)
@@ -1125,7 +1145,7 @@ export default function PopCultureArchive() {
       return { years, series };
     }
     // ... (rest of the movie logic remains unchanged)
-    const scopedRows = movieGenreYears.filter((row) => row.year >= activeYearStart && row.year <= activeYearEnd);
+    const scopedRows = movieGenreYears.filter((row) => row.year >= minYear && row.year <= maxYear);
     const totals = new Map();
     scopedRows.forEach((row) => {
       if (selectedGenre !== "all" && row.genre !== selectedGenre) return;
@@ -1484,7 +1504,7 @@ export default function PopCultureArchive() {
                       : <><InsightText>{movieShareInsight}</InsightText><GenreShareAreaChart series={movieShareSeries.series} years={movieShareSeries.years} activeGenre={selectedGenre} onGenreSelect={setSelectedGenre} /></>
                     : chartSeries.series.length === 0
                       ? <div style={{ color: "#666680", fontSize: 13 }}>No data for selection</div>
-                      : <GenreStackedAreaChart series={chartSeries.series} years={chartSeries.years} xLabel="Year" />}
+                      : <GenreStackedAreaChart series={chartSeries.series} xLabel="Year" />}
                 </div>
                 <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20, display: "flex", flexDirection: "column" }}>
                   <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>{mode === "movies" ? "Rating distribution by decade" : "By decade"}</h3>
