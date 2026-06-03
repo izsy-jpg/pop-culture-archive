@@ -41,6 +41,19 @@ const BILLBOARD_DATASET_URLS = Object.values(import.meta.glob("../dataset/billbo
   import: "default",
 })).sort();
 
+function isChristmasSong(song) {
+  const christmasKeywords = [
+    "christmas", "jingle", "sleigh", "santa", "holly", "mistletoe", 
+    "winter wonderland", "deck the halls", "silent night", "feliz navidad",
+    "it's the most beautiful time of the year", "it's the most wonderful time of the year", "let it snow"
+  ];
+  const titleLower = song.title.toLowerCase();
+  if (christmasKeywords.some(keyword => titleLower.includes(keyword))) return true;
+  // Also check genre specifically for 'holiday' or 'christmas'
+  if (song.genre && (song.genre.toLowerCase().includes("holiday") || song.genre.toLowerCase().includes("christmas"))) return true;
+  return false;
+}
+
 function toNumber(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -869,6 +882,7 @@ export default function PopCultureArchive() {
   const [mode, setMode] = useState("home");
   const [selectedDecade, setSelectedDecade] = useState("all");
   const [selectedGenre, setSelectedGenre] = useState("all");
+  const [removeChristmasSongs, setRemoveChristmasSongs] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [yearRange, setYearRange] = useState([1980, 2026]);
   const [movies, setMovies] = useState([]);
@@ -938,6 +952,7 @@ export default function PopCultureArchive() {
       if (item.year < activeYearStart || item.year > activeYearEnd) return false;
       if (mode === "movies" && selectedGenre !== "all" && !(item.genres || [item.genre]).includes(selectedGenre)) return false;
       if (mode === "songs" && selectedGenre !== "all" && item.genre !== selectedGenre) return false;
+      if (mode === "songs" && removeChristmasSongs && isChristmasSong(item)) return false;
       if (q) {
         if (mode === "songs") {
           // FROM FRIEND: partial match for songs (includes instead of exact)
@@ -964,7 +979,7 @@ export default function PopCultureArchive() {
       }));
     }
     return result;
-  }, [data, activeYearStart, activeYearEnd, selectedGenre, searchQuery, mode]);
+  }, [data, activeYearStart, activeYearEnd, selectedGenre, searchQuery, mode, removeChristmasSongs]);
 
   const ratedMoviesForCharts = useMemo(() => {
     if (mode !== "movies") return [];
@@ -1152,8 +1167,16 @@ export default function PopCultureArchive() {
   }, [movies]);
 
   const homeTopSongs = useMemo(() => {
-    return [...songs].sort((a, b) => b.weeks - a.weeks || a.title.localeCompare(b.title)).slice(0, RESULT_LIMIT);
-  }, [songs]);
+    console.log("homeTopSongs memo recomputed, removeChristmasSongs:", removeChristmasSongs);
+    return [...songs]
+      .filter(song => {
+        const isChristmas = isChristmasSong(song);
+        if (removeChristmasSongs && isChristmas) return false;
+        return true;
+      })
+      .sort((a, b) => b.weeks - a.weeks || a.title.localeCompare(b.title))
+      .slice(0, RESULT_LIMIT);
+  }, [songs, removeChristmasSongs]);
 
   // FROM FRIEND: avgRating and songMatch
   const avgRating = mode === "movies"
@@ -1362,7 +1385,15 @@ export default function PopCultureArchive() {
               )}
 
               <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>{mode === "movies" ? "Top 10 movies" : "Top 10 songs"}</h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <h3 style={{ margin: 0, fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>{mode === "movies" ? "Top 10 movies" : "Top 10 songs"}</h3>
+                  {mode === "songs" && (
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, color: "#fff", fontSize: 13, cursor: "pointer" }}>
+                      <input type="checkbox" checked={removeChristmasSongs} onChange={(e) => setRemoveChristmasSongs(e.target.checked)} />
+                      Hide Christmas
+                    </label>
+                  )}
+                </div>
                 {filtered.length === 0
                   ? <div style={{ color: "#666680", fontSize: 13 }}>No results match your filters.</div>
                   : topResults.map((item) => <SearchResult key={`${mode}-${item.title}-${item.artist || item.year}`} item={item} mode={mode} />)}
