@@ -209,60 +209,94 @@ function InsightText({ children }) {
 }
 
 function SongPerformanceChart({ songs }) {
+  const [hiddenSongs, setHiddenSongs] = useState(new Set());
+  const [tooltip, setTooltip] = useState(null);
+  
   const width = 720;
-  const height = 300;
-  const margin = { top: 20, right: 20, bottom: 40, left: 40 };
+  const height = 200;
+  const margin = { top: 25, right: 20, bottom: 30, left: 35 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
 
-  // Debugging data
-  console.log("Chart Songs Data:", songs.map(s => ({ title: s.title, years: s.years, yearlyWeeks: s.yearlyWeeks })));
-
-  // Dynamically calculate the range based on the top results provided
   const allYears = [...new Set(songs.flatMap(s => s.years || [s.year]))].sort((a, b) => a - b);
   const minYear = allYears[0] || 1980;
   const maxYear = allYears[allYears.length - 1] || 2026;
   const yearSpan = Math.max(maxYear - minYear, 1);
-  
-  // FIX: Calculate maxWeeks across ALL yearly data points
   const allWeeklyValues = songs.flatMap(s => Object.values(s.yearlyWeeks || {}));
   const maxWeeks = Math.max(...allWeeklyValues, 1);
 
   const x = (year) => margin.left + ((year - minYear) / yearSpan) * innerWidth;
   const y = (weeks) => margin.top + innerHeight - (weeks / maxWeeks) * innerHeight;
 
-  // Dynamic ticks
-  const xTicks = [...new Set([minYear, Math.round((minYear + maxYear) / 2), maxYear])];
+  // Dynamic ticks: Add more ticks by creating an array of years
+  const xTicks = [];
+  for (let y = minYear; y <= maxYear; y += Math.max(1, Math.floor(yearSpan / 8))) {
+    xTicks.push(y);
+  }
   const yTicks = [0, Math.round(maxWeeks / 2), maxWeeks];
 
+  const toggleSong = (title) => {
+    const next = new Set(hiddenSongs);
+    if (next.has(title)) next.delete(title);
+    else next.add(title);
+    setHiddenSongs(next);
+  };
+
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
-      {/* X Axis */}
-      <line x1={margin.left} y1={margin.top + innerHeight} x2={margin.left + innerWidth} y2={margin.top + innerHeight} stroke="#343452" />
-      {xTicks.map(year => (
-        <text key={year} x={x(year)} y={height - 5} textAnchor="middle" fill="#8b8ba3" fontSize="9">{year}</text>
-      ))}
+    <div style={{ position: "relative" }}>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {/* X Axis */}
+        <line x1={margin.left} y1={margin.top + innerHeight} x2={margin.left + innerWidth} y2={margin.top + innerHeight} stroke="#343452" />
+        {xTicks.map(year => (
+          <text key={year} x={x(year)} y={height - 5} textAnchor="middle" fill="#8b8ba3" fontSize="9">{year}</text>
+        ))}
 
-      {/* Y Axis */}
-      <line x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top + innerHeight} stroke="#343452" />
-      {yTicks.map(weeks => (
-        <text key={weeks} x={margin.left - 5} y={y(weeks) + 3} textAnchor="end" fill="#8b8ba3" fontSize="9">{weeks}</text>
-      ))}
-      <text x={10} y={margin.top + innerHeight / 2} textAnchor="middle" fill="#8b8ba3" fontSize="9" transform={`rotate(-90 10 ${margin.top + innerHeight / 2})`}>Weeks</text>
-      <text x={width/2} y={height - 25} textAnchor="middle" fill="#8b8ba3" fontSize="9">Year</text>
+        {/* Y Axis */}
+        <line x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top + innerHeight} stroke="#343452" />
+        {yTicks.map(weeks => (
+          <text key={weeks} x={margin.left - 5} y={y(weeks) + 3} textAnchor="end" fill="#8b8ba3" fontSize="9">{weeks}</text>
+        ))}
+        <text x={10} y={margin.top + innerHeight / 2} textAnchor="middle" fill="#8b8ba3" fontSize="9" transform={`rotate(-90 10 ${margin.top + innerHeight / 2})`}>Weeks</text>
+        <text x={width/2} y={height - 18} textAnchor="middle" fill="#8b8ba3" fontSize="9">Year</text>
 
-      {/* Lines */}
-      {songs.map((song, index) => {
-        const years = (song.years || []).sort((a,b) => a-b);
-        const yearlyWeeks = song.yearlyWeeks || {};
-        // FIX: Ensure we use the yearly-specific value
-        const points = years.map(year => `${x(year)},${y(yearlyWeeks[year] || 0)}`).join(" ");
-        const color = COLORS[index % COLORS.length];
-        return (
-          <polyline key={song.title} points={points} fill="none" stroke={color} strokeWidth="2" />
-        );
-      })}
-    </svg>
+        {/* Lines & Markers */}
+          {songs.map((song, index) => {
+          const isHidden = hiddenSongs.has(song.title);
+          const color = isHidden ? "#343452" : COLORS[index % COLORS.length];
+          const years = (song.years || []).sort((a,b) => a-b);
+          const yearlyWeeks = song.yearlyWeeks || {};
+          const points = years.map(year => `${x(year)},${y(yearlyWeeks[year] || 0)}`).join(" ");
+          
+          return (
+            <g key={song.title} style={{ opacity: isHidden ? 0.3 : 1 }}
+              onMouseEnter={(e) => !isHidden && setTooltip({ x: e.clientX, y: e.clientY, title: song.title, artist: song.artist, genre: song.genre, color })}
+              onMouseMove={(e) => !isHidden && setTooltip({ x: e.clientX, y: e.clientY, title: song.title, artist: song.artist, genre: song.genre, color })}
+              onMouseLeave={() => setTooltip(null)}
+            >
+              <polyline points={points} fill="none" stroke={color} strokeWidth={isHidden ? 1.5 : 3} />
+              {years.map(year => (
+                <circle key={`${song.title}-${year}`} cx={x(year)} cy={y(yearlyWeeks[year] || 0)} r="3" fill={color} />
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+      {tooltip && (
+        <div style={{ position: "fixed", left: tooltip.x + 15, top: tooltip.y + 15, background: "#17172b", padding: "6px 10px", borderRadius: 4, fontSize: 11, pointerEvents: "none", border: "1px solid #2a2a4a", zIndex: 100 }}>
+          <div style={{ fontWeight: 700, color: tooltip.color }}>{tooltip.title}</div>
+          <div style={{ color: "#9a9ab4" }}>{tooltip.artist}</div>
+          <div>Genre: {tooltip.genre}</div>
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
+        {songs.map((song, index) => (
+          <button key={song.title} onClick={() => toggleSong(song.title)} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: hiddenSongs.has(song.title) ? "#666" : "#c6c6d8", background: "none", border: "none", cursor: "pointer" }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: hiddenSongs.has(song.title) ? "#343452" : COLORS[index % COLORS.length] }} />
+            {song.title}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1456,26 +1490,26 @@ export default function PopCultureArchive() {
                 {mode === "songs" && topResults.length > 0 && (
                   <div style={{ marginBottom: 20 }}>
                     <SongPerformanceChart songs={topResults} />
-                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
-                      {topResults.map((song, index) => (
-                        <div key={song.title} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#c6c6d8" }}>
-                          <span style={{ width: 10, height: 10, borderRadius: 2, background: COLORS[index % COLORS.length] }} />
-                          {song.title}
-                        </div>
-                      ))}
-                    </div>
                   </div>
                 )}
                 {filtered.length === 0
                   ? <div style={{ color: "#666680", fontSize: 13 }}>No results match your filters.</div>
                   : topResults.map((item) => <SearchResult key={`${mode}-${item.title}-${item.artist || item.year}`} item={item} mode={mode} />)}
-                {/* FROM FRIEND: Load more button */}
-                {filtered.length > displayLimit && (
-                  <button onClick={() => setDisplayLimit(limit => limit + RESULT_LIMIT)}
-                    style={{ marginTop: 16, background: "#2a2a4a", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>
-                    Load more
-                  </button>
-                )}
+                {/* FROM FRIEND: Load more / Show less buttons */}
+                <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                  {filtered.length > displayLimit && (
+                    <button onClick={() => setDisplayLimit(limit => limit + RESULT_LIMIT)}
+                      style={{ background: "#2a2a4a", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>
+                      Load more
+                    </button>
+                  )}
+                  {displayLimit > RESULT_LIMIT && (
+                    <button onClick={() => setDisplayLimit(limit => Math.max(RESULT_LIMIT, limit - RESULT_LIMIT))}
+                      style={{ background: "#2a2a4a", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>
+                      Show less
+                    </button>
+                  )}
+                </div>
               </div>
             </>
           )}
