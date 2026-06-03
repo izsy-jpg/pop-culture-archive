@@ -717,10 +717,15 @@ function SearchResult({ item, mode }) {
   );
 }
 
-function HomeMovieCard({ movie, label }) {
+function HomeMovieCard({ movie, label, onClick }) {
   const posterUrl = movie.posterPath ? `${TMDB_IMAGE_BASE}${movie.posterPath}` : "";
   return (
-    <div style={{ background: "#17172b", border: "1px solid #2a2a4a", borderRadius: 8, overflow: "hidden", minWidth: 0 }}>
+    <div
+      onClick={onClick}
+      style={{ background: "#17172b", border: "1px solid #2a2a4a", borderRadius: 8, overflow: "hidden", minWidth: 0, cursor: onClick ? "pointer" : "default", transition: "border-color 0.15s ease" }}
+      onMouseEnter={e => { if (onClick) e.currentTarget.style.borderColor = "#4a9edd"; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a2a4a"; }}
+    >
       {posterUrl
         ? <img src={posterUrl} alt={`${movie.title} poster`} style={{ width: "100%", aspectRatio: "2 / 3", objectFit: "cover", display: "block" }} />
         : <div style={{ aspectRatio: "2 / 3", display: "grid", placeItems: "center", background: "#20203a", color: "#8b8ba3", fontSize: 12 }}>No poster</div>}
@@ -1352,7 +1357,15 @@ export default function PopCultureArchive() {
             {homeYearlyTopMovies.length === 0
               ? <div style={{ color: "#666680", fontSize: 13 }}>No movie data loaded yet.</div>
               : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14 }}>
-                  {homeYearlyTopMovies.map((movie) => <HomeMovieCard key={`${movie.title}-${movie.year}`} movie={movie} label={movie.year} />)}
+                  {homeYearlyTopMovies.map((movie) => (
+                    <HomeMovieCard key={`${movie.title}-${movie.year}`} movie={movie} label={movie.year} 
+                    onClick={() => {
+                      setMode("movies");
+                      setSelectedGenre("all");
+                      setSearchQuery(movie.title);
+                  }}
+                />
+              ))}
                 </div>}
           </div>
           <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
