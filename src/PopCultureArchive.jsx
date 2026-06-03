@@ -617,7 +617,7 @@ function GenreShareAreaChart({ series, years, activeGenre, onGenreSelect }) {
               style={{ cursor: "pointer", transition: "opacity 0.18s ease" }}
               onMouseEnter={() => setHoveredGenre(item.name)}
               onMouseLeave={() => setHoveredGenre("")}
-              onClick={() => onGenreSelect(activeGenre === item.name ? "all" : item.name)}
+              onClick={() => {}}
             >
               <title>{`${item.name}: click to ${activeGenre === item.name ? "clear" : "filter"}`}</title>
             </polygon>
@@ -628,7 +628,7 @@ function GenreShareAreaChart({ series, years, activeGenre, onGenreSelect }) {
         {series.map((item, index) => (
           <button
             key={item.name}
-            onClick={() => onGenreSelect(activeGenre === item.name ? "all" : item.name)}
+            onClick={() => {}}
             onMouseEnter={() => setHoveredGenre(item.name)}
             onMouseLeave={() => setHoveredGenre("")}
             style={{
