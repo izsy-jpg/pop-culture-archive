@@ -238,8 +238,9 @@ function SongPerformanceChart({ songs, yearStart, yearEnd }) {
       <svg viewBox={`0 0 ${width} ${height}`} style={{ display: "block" }}>
         {topSongs.map((song, index) => (
           <g key={song.title}>
-            <text x={0} y={y(index) + 11} textAnchor="start" fill="#c6c6d8" fontSize="18">
-              {song.title}
+            <text x={0} y={y(index) + 11} textAnchor="start" fill="#c6c6d8" fontSize="15">
+              <title>{song.title}</title>
+              {song.title.length > 22 ? song.title.slice(0, 17) + "…" : song.title}
             </text>
             <rect x={margin.left} y={y(index) + 3} width={x(song.weeksInYear)} height={rowHeight - 15} fill={COLORS[index % COLORS.length]} 
                 onMouseEnter={(e) => setTooltip({ x: e.clientX, y: e.clientY, title: song.title, weeks: song.weeksInYear })}
