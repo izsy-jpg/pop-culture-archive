@@ -398,8 +398,13 @@ export default function PopCultureArchive() {
 
   const allGenres = useMemo(() => {
     if (mode === "songs") return [...new Set(songs.map((song) => song.genre).filter(Boolean))].sort();
-    return [...new Set(movieGenreYears.map((row) => row.genre))].sort();
-  }, [mode, movieGenreYears, songs]);
+    
+    // Get unique genres from movies within the active year range
+    const relevantMovies = movies.filter(m => m.year >= activeYearStart && m.year <= activeYearEnd);
+    const genres = new Set();
+    relevantMovies.forEach(m => m.genres.forEach(g => genres.add(g)));
+    return [...genres].sort();
+  }, [mode, movies, activeYearStart, activeYearEnd, songs]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
