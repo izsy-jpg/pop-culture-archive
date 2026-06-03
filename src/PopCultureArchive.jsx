@@ -766,7 +766,9 @@ function TopRatedGenresCard({ items }) {
         <div key={item.genre} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "5px 0", borderTop: "1px solid #20203a" }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ color: "#fff", fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.genre}</div>
-            <div style={{ color: "#9a9ab4", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.movie.title}</div>
+            <div style={{ color: "#9a9ab4", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {item.movie.title}{item.movie.year ? ` (${item.movie.year})` : ""}
+            </div>
           </div>
           <div style={{ color: "#f4c430", fontSize: 12, fontWeight: 800, flex: "0 0 auto" }}>★ {item.movie.rating.toFixed(1)}</div>
         </div>
@@ -1107,6 +1109,121 @@ function MovieSearchDetailView({ movies, allMovies, onMovieSelect }) {
         <SearchDecadeContext movies={movies} />
       </div>
       <SearchContextScatter allMovies={allMovies} highlightedMovies={movies.filter(isRatedMovie)} onMovieSelect={onMovieSelect} />
+    </div>
+  );
+}
+
+function SongSearchDetailView({ songs, allSongs }) {
+  return (
+    <div>
+      <div style={{ marginBottom: 18, color: "#c6c6d8", fontSize: 14 }}>
+        {songs.length === 1
+          ? "Showing song detail view for 1 matched result."
+          : `Found ${songs.length} songs titled "${songs[0].title}" — showing each separately.`}
+      </div>
+
+      {/* Render a detail card for EACH matched song */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        {songs.map((song, i) => (
+          <SongDetailCard key={`${song.title}-${song.artist}-${i}`} song={song} allSongs={allSongs} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SongDetailCard({ song, allSongs }) {
+  const peers = useMemo(() => {
+    return allSongs
+      .filter(s => s.title !== song.title && s.genre === song.genre)
+      .sort((a, b) => (b.historicalStats?.totalWeeks || b.weeks) - (a.historicalStats?.totalWeeks || a.weeks))
+      .slice(0, 5);
+  }, [song, allSongs]);
+
+  const genreSongs = allSongs.filter(s => s.genre === song.genre);
+  const totalWeeksSong = song.historicalStats?.totalWeeks || song.weeks;
+  const below = genreSongs.filter(s => (s.historicalStats?.totalWeeks || s.weeks) <= totalWeeksSong).length;
+  const percentileRank = genreSongs.length > 0 ? Math.round((below / genreSongs.length) * 100) : null;
+
+  const years = song.years || [song.year];
+  const yearlyWeeks = song.yearlyWeeks || { [song.year]: song.weeks };
+  const maxWeeks = Math.max(...Object.values(yearlyWeeks), 1);
+
+  return (
+    <div>
+      {/* Main detail card */}
+      <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+          <h2 style={{ margin: 0, color: "#fff", fontSize: 26, lineHeight: 1.1 }}>{song.title}</h2>
+          <span style={{ color: "#e85d8e", fontSize: 16, fontWeight: 700 }}>{song.artist}</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+          <span style={{ border: "1px solid #2a2a4a", borderRadius: 999, padding: "4px 12px", color: "#c6c6d8", fontSize: 12 }}>{song.genre}</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
+          <div style={{ background: "#17172b", borderRadius: 8, padding: "12px 18px", minWidth: 120 }}>
+            <div style={{ fontSize: 11, color: "#9a9ab4", textTransform: "uppercase", marginBottom: 4 }}>Total weeks</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#e85d8e" }}>{totalWeeksSong}</div>
+          </div>
+          <div style={{ background: "#17172b", borderRadius: 8, padding: "12px 18px", minWidth: 120 }}>
+            <div style={{ fontSize: 11, color: "#9a9ab4", textTransform: "uppercase", marginBottom: 4 }}>Years charted</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#fff" }}>{years.length}</div>
+          </div>
+          <div style={{ background: "#17172b", borderRadius: 8, padding: "12px 18px", minWidth: 120 }}>
+            <div style={{ fontSize: 11, color: "#9a9ab4", textTransform: "uppercase", marginBottom: 4 }}>First charted</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#fff" }}>{Math.min(...years)}</div>
+          </div>
+          <div style={{ background: "#17172b", borderRadius: 8, padding: "12px 18px", minWidth: 120 }}>
+            <div style={{ fontSize: 11, color: "#9a9ab4", textTransform: "uppercase", marginBottom: 4 }}>Last charted</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#fff" }}>{Math.max(...years)}</div>
+          </div>
+        </div>
+
+        {percentileRank !== null && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#c6c6d8", marginBottom: 6 }}>
+              <span>Chart longevity vs genre peers</span>
+              <span style={{ color: "#e85d8e", fontWeight: 700 }}>Top {Math.max(1, 101 - percentileRank)}% of {song.genre} songs</span>
+            </div>
+            <div style={{ position: "relative", height: 10, borderRadius: 999, background: "#20203a", overflow: "hidden" }}>
+              <div style={{ width: `${percentileRank}%`, height: "100%", background: "linear-gradient(90deg, #4a9edd, #e85d8e)" }} />
+            </div>
+            <div style={{ fontSize: 11, color: "#9a9ab4", marginTop: 5 }}>
+              Based on {genreSongs.length.toLocaleString()} {song.genre} songs in the dataset
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12, color: "#9a9ab4", textTransform: "uppercase", marginBottom: 12 }}>Weeks on chart per year</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 80 }}>
+            {years.map(year => {
+              const weeks = yearlyWeeks[year] || 0;
+              const barH = Math.max(4, (weeks / maxWeeks) * 80);
+              return (
+                <div key={year} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, minWidth: 36 }}>
+                  <div style={{ fontSize: 10, color: "#e85d8e", marginBottom: 3, fontWeight: 700 }}>{weeks}w</div>
+                  <div style={{ width: "100%", height: barH, background: "#e85d8e", borderRadius: "4px 4px 0 0", transition: "height 0.3s ease" }} />
+                  <div style={{ fontSize: 10, color: "#9a9ab4", marginTop: 4 }}>{year}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Genre peers */}
+      <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+        <h3 style={{ margin: "0 0 6px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Genre peers — {song.artist}</h3>
+        <div style={{ fontSize: 13, color: "#c6c6d8", marginBottom: 14 }}>
+          Top {song.genre} songs by total chart weeks in the dataset.
+        </div>
+        {peers.length === 0
+          ? <div style={{ color: "#666680", fontSize: 13 }}>No other {song.genre} songs found.</div>
+          : peers.map(peer => <SearchResult key={`${peer.title}-${peer.artist}`} item={peer} mode="songs" />)}
+      </div>
     </div>
   );
 }
@@ -1490,6 +1607,8 @@ export default function PopCultureArchive() {
   }, [filtered.length, mode, ratedMoviesForCharts.length]);
 
   const movieDetailMode = mode === "movies" && searchQuery.trim() && filtered.length > 0 && filtered.length <= 5;
+  const uniqueSongTitles = new Set(filtered.map(s => s.title.toLowerCase()));
+  const songDetailMode = mode === "songs" && searchQuery.trim() && filtered.length > 0 && (filtered.length === 1 || (filtered.length <= 3 && uniqueSongTitles.size === 1));
 
   return (
     <div style={{ minHeight: "100vh", background: "#0d0d1a", color: "#e0e0e0", fontFamily: "'Segoe UI', system-ui, sans-serif", padding: "clamp(16px, 4vw, 24px)" }}>
@@ -1546,8 +1665,18 @@ export default function PopCultureArchive() {
           <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
             <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Top 10 songs</h3>
             {homeTopSongs.length === 0
-              ? <div style={{ color: "#666680", fontSize: 13 }}>No song data loaded yet.</div>
-              : homeTopSongs.map((song) => <SearchResult key={`home-song-${song.title}-${song.artist}-${song.year}`} item={song} mode="songs" />)}
+                ? <div style={{ color: "#666680", fontSize: 13 }}>No song data loaded yet.</div>
+                : homeTopSongs.map((song) => (
+                    <div
+                      key={`home-song-${song.title}-${song.artist}-${song.year}`}
+                      onClick={() => { setMode("songs"); setSelectedGenre("all"); setSearchQuery(song.title); }}
+                      style={{ cursor: "pointer", borderRadius: 6, transition: "background 0.15s ease" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "#17172b"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <SearchResult item={song} mode="songs" />
+                    </div>
+                  ))}
           </div>
         </div>
       ) : (
@@ -1608,7 +1737,6 @@ export default function PopCultureArchive() {
                     ? <TopRatedGenresCard items={topRatedPerGenre} />
                     : <StatCard label="Longest charting" value={<div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }} title={topItem.title}>{topItem.title}</div>} sub={`${topItem.historicalStats?.totalWeeks || topItem.weeks} total weeks`} fontSize={20} />
                 )}
-                {mode === "movies" && <StatCard label="Avg rating" value={`★ ${avgRating}`} fontSize={20} />}
                 <StatCard label={mode === "movies" ? "Genres" : "Source"} value={mode === "movies" ? allGenres.length : "Billboard"} fontSize={20} />
               </>
             )}
@@ -1616,6 +1744,8 @@ export default function PopCultureArchive() {
 
           {movieDetailMode ? (
             <MovieSearchDetailView movies={filtered} allMovies={movies} onMovieSelect={(movie) => setSearchQuery(movie.title)} />
+          ) : songDetailMode ? (
+            <SongSearchDetailView songs={filtered} allSongs={songs} />
           ) : (
             <>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 20, marginBottom: 28 }}>
