@@ -220,7 +220,7 @@ function StatCard({ label, value, sub }) {
       boxSizing: "border-box",
     }}>
       <div style={{ fontSize: 12, color: "#9a9ab4", marginBottom: 6, textTransform: "uppercase" }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: "#fff", lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: fontSize, fontWeight: 700, color: "#fff", lineHeight: 1.1 }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: "#4ade80", marginTop: 6 }}>{sub}</div>}
     </div>
   );
@@ -1039,7 +1039,7 @@ export default function PopCultureArchive() {
       if (mode === "songs" && selectedGenre !== "all" && item.genre !== selectedGenre) return false;
       if (q) {
         if (mode === "songs") {
-          if (item.title.toLowerCase() !== q) return false;
+          if (!item.title.toLowerCase().includes(q) && !item.artist.toLowerCase().includes(q)) return false;
         } else {
           const searchable = [
             item.title,
@@ -1273,7 +1273,6 @@ export default function PopCultureArchive() {
     ? [...qualifiedTopMovies].sort((a, b) => b.rating - a.rating || b.votes - a.votes)[0]
     : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak)[0];
   const topResults = useMemo(() => {
-    // Already filtered by yearRange in the 'filtered' memo
     const sorted = mode === "movies"
       ? [...qualifiedTopMovies].sort((a, b) => b.rating - a.rating || b.votes - a.votes)
       : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak);
@@ -1537,7 +1536,33 @@ export default function PopCultureArchive() {
               />
             )
         )}
-        <StatCard label={mode === "movies" ? "Genres" : "Source"} value={mode === "movies" ? allGenres.length : "Billboard"} />
+        {!songMatch && (
+           <>
+             <StatCard label={`Total ${mode}`} value={filtered.length.toLocaleString()} fontSize={20} />
+             {mode === "songs" && <StatCard label="Total chart weeks" value={totalWeeks.toLocaleString()} fontSize={20} />}
+             {topItem && (
+               <StatCard
+                 label={mode === "movies" ? "Top rated" : "Longest charting"}
+                 value={
+                   <div style={{
+                     overflow: "hidden",
+                     textOverflow: "ellipsis",
+                     whiteSpace: "nowrap",
+                     maxWidth: "100%"
+                   }} title={topItem.title}>
+                     {topItem.title}
+                   </div>
+                 }
+                 sub={mode === "movies" 
+                   ? `${topItem.rating.toFixed(1)} rating` 
+                   : `${topItem.historicalStats?.totalWeeks || topItem.weeks} total weeks`}
+                   fontSize={20}
+               />
+             )}
+           </>
+        )}
+        {mode === "movies" && <StatCard label="Avg rating" value={`★ ${avgRating}`} fontSize={20} />}
+        <StatCard label={mode === "movies" ? "Genres" : "Source"} value={mode === "movies" ? allGenres.length : "Billboard"} fontSize={20} />
       </div>
 
       {movieDetailMode ? (
