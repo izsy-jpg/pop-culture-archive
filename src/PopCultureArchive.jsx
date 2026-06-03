@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 
-const DECADES = ["1950s", "1960s", "1970s", "1980s", "1990s", "2000s", "2010s", "2020s"];
+const DECADES = ["1980s", "1990s", "2000s", "2010s", "2020s"];
 const DECADE_RANGE = {
-  "1950s": [1950, 1959],
-  "1960s": [1960, 1969],
-  "1970s": [1970, 1979],
   "1980s": [1980, 1989],
   "1990s": [1990, 1999],
   "2000s": [2000, 2009],
@@ -30,7 +27,7 @@ const RESULT_LIMIT = 10;
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w342";
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY || "71790251f947beef32f979fe5ba1c0fe";
-const TMDB_MOVIE_START_YEAR = 1958;
+const TMDB_MOVIE_START_YEAR = 1980;
 const TMDB_MOVIE_END_YEAR = 2026;
 const TMDB_MOVIE_PAGES_PER_YEAR = 1;
 const YEAR_OPTIONS = Array.from({ length: TMDB_MOVIE_END_YEAR - TMDB_MOVIE_START_YEAR + 1 }, (_, index) => TMDB_MOVIE_START_YEAR + index);
@@ -363,7 +360,7 @@ export default function PopCultureArchive() {
   const [selectedDecade, setSelectedDecade] = useState("all");
   const [selectedGenre, setSelectedGenre] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [yearRange, setYearRange] = useState([1958, 2026]);
+  const [yearRange, setYearRange] = useState([1980, 2026]);
   const [movies, setMovies] = useState([]);
   const [allMovieTotal, setAllMovieTotal] = useState(0);
   const [movieYearTotals, setMovieYearTotals] = useState({});
