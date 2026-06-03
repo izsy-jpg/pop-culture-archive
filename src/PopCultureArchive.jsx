@@ -112,6 +112,7 @@ function normalizeMovie(movie, genreMap) {
     genre: genres[0] || "Unknown",
     rating: toNumber(movie.vote_average),
     votes: Math.round(toNumber(movie.vote_count)),
+    popularity: toNumber(movie.popularity),
     director: "",
     posterPath: movie.poster_path || "",
   };
@@ -330,7 +331,7 @@ function SearchResult({ item, mode }) {
   );
 }
 
-function HomeMovieCard({ movie, rank }) {
+function HomeMovieCard({ movie, label }) {
   const posterUrl = movie.posterPath ? `${TMDB_IMAGE_BASE}${movie.posterPath}` : "";
 
   return (
@@ -343,7 +344,7 @@ function HomeMovieCard({ movie, rank }) {
           </div>
         )}
       <div style={{ padding: 10 }}>
-        <div style={{ fontSize: 11, color: "#82c7f5", marginBottom: 4 }}>#{rank} / {movie.year}</div>
+        <div style={{ fontSize: 11, color: "#82c7f5", marginBottom: 4 }}>{label || movie.year}</div>
         <div style={{ color: "#fff", fontWeight: 700, fontSize: 13, lineHeight: 1.25, minHeight: 34 }}>{movie.title}</div>
         <div style={{ color: "#f4c430", fontSize: 12, fontWeight: 700, marginTop: 6 }}>★ {movie.rating.toFixed(1)}</div>
       </div>
@@ -399,15 +400,16 @@ export default function PopCultureArchive() {
   const [activeYearStart, activeYearEnd] = getFilteredYears(yearRange, selectedDecade);
 
   const allGenres = useMemo(() => {
-    if (mode === "songs") return ["Billboard Hot 100"];
+    if (mode === "songs") return [...new Set(songs.map((song) => song.genre).filter(Boolean))].sort();
     return [...new Set(movieGenreYears.map((row) => row.genre))].sort();
-  }, [mode, movieGenreYears]);
+  }, [mode, movieGenreYears, songs]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return data.filter((item) => {
       if (item.year < activeYearStart || item.year > activeYearEnd) return false;
       if (mode === "movies" && selectedGenre !== "all" && !(item.genres || [item.genre]).includes(selectedGenre)) return false;
+      if (mode === "songs" && selectedGenre !== "all" && item.genre !== selectedGenre) return false;
       if (q) {
         const searchable = [
           item.title,
@@ -431,7 +433,7 @@ export default function PopCultureArchive() {
       return {
         years,
         series: [{
-          name: "Billboard Hot 100",
+          name: selectedGenre === "all" ? "Billboard Hot 100" : selectedGenre,
           points: years.map((year) => ({ year, count: counts.get(year) || 0 })),
         }],
       };
@@ -496,10 +498,15 @@ export default function PopCultureArchive() {
       : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak);
     return sorted.slice(0, RESULT_LIMIT);
   }, [filtered, mode]);
-  const homeTopMovies = useMemo(() => {
-    return [...movies]
-      .sort((a, b) => b.rating - a.rating || b.votes - a.votes)
-      .slice(0, RESULT_LIMIT);
+  const homeYearlyTopMovies = useMemo(() => {
+    const topByYear = new Map();
+    movies.forEach((movie) => {
+      const current = topByYear.get(movie.year);
+      if (!current || movie.rating > current.rating || (movie.rating === current.rating && movie.votes > current.votes)) {
+        topByYear.set(movie.year, movie);
+      }
+    });
+    return [...topByYear.values()].sort((a, b) => b.year - a.year);
   }, [movies]);
   const homeTopSongs = useMemo(() => {
     return [...songs]
@@ -570,13 +577,13 @@ export default function PopCultureArchive() {
           </div>
 
           <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20, marginBottom: 28 }}>
-            <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Top 10 movies</h3>
-            {homeTopMovies.length === 0
+            <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Top rated #1 movie for each year</h3>
+            {homeYearlyTopMovies.length === 0
               ? <div style={{ color: "#666680", fontSize: 13 }}>No movie data loaded yet.</div>
               : (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14 }}>
-                  {homeTopMovies.map((movie, index) => (
-                    <HomeMovieCard key={`${movie.title}-${movie.year}-${index}`} movie={movie} rank={index + 1} />
+                  {homeYearlyTopMovies.map((movie) => (
+                    <HomeMovieCard key={`${movie.title}-${movie.year}`} movie={movie} label={movie.year} />
                   ))}
                 </div>
               )}
@@ -610,7 +617,6 @@ export default function PopCultureArchive() {
           }}
         />
         <select value={selectedGenre} onChange={(event) => setSelectedGenre(event.target.value)}
-          disabled={mode === "songs"}
           style={{
             background: "#17172b",
             border: "1px solid #2a2a4a",
@@ -619,8 +625,8 @@ export default function PopCultureArchive() {
             color: "#fff",
             fontSize: 13,
           }}>
-          <option value="all">{mode === "movies" ? "All genres" : "No song genre column"}</option>
-          {mode === "movies" && allGenres.map((genre) => <option key={genre} value={genre}>{genre}</option>)}
+          <option value="all">All genres</option>
+          {allGenres.map((genre) => <option key={genre} value={genre}>{genre}</option>)}
         </select>
         <label style={{ display: "grid", gap: 4, fontSize: 11, color: "#9a9ab4", textTransform: "uppercase" }}>
           From year
