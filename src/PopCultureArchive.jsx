@@ -748,7 +748,14 @@ export default function PopCultureArchive() {
 
       <div style={{ display: "flex", gap: 8, marginBottom: 28, flexWrap: "wrap" }}>
         {["all", ...DECADES].map((decade) => (
-          <button key={decade} onClick={() => setSelectedDecade(decade)}
+          <button key={decade} onClick={() => {
+            setSelectedDecade(decade);
+            if (decade === "all") {
+              setYearRange([TMDB_MOVIE_START_YEAR, TMDB_MOVIE_END_YEAR]);
+            } else {
+              setYearRange(DECADE_RANGE[decade]);
+            }
+          }}
             style={{
               padding: "5px 14px",
               borderRadius: 999,
