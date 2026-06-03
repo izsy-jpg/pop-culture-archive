@@ -26,11 +26,14 @@ const COLORS = [
   "#b16be8",
 ];
 
+const RESULT_LIMIT = 10;
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
+const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w342";
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY || "71790251f947beef32f979fe5ba1c0fe";
 const TMDB_MOVIE_START_YEAR = 1958;
 const TMDB_MOVIE_END_YEAR = 2026;
 const TMDB_MOVIE_PAGES_PER_YEAR = 1;
+const YEAR_OPTIONS = Array.from({ length: TMDB_MOVIE_END_YEAR - TMDB_MOVIE_START_YEAR + 1 }, (_, index) => TMDB_MOVIE_START_YEAR + index);
 const BILLBOARD_DATASET_URLS = Object.values(import.meta.glob("../dataset/billboard/*.csv", {
   eager: true,
   query: "?url",
@@ -83,6 +86,17 @@ async function fetchTmdbMoviePage(year, page) {
   return { year, data };
 }
 
+async function fetchTmdbMovieTotal() {
+  const data = await fetchTmdbJson("/discover/movie", {
+    include_adult: "false",
+    include_video: "false",
+    page: "1",
+    sort_by: "popularity.desc",
+  });
+
+  return data.total_results || 0;
+}
+
 function normalizeMovie(movie, genreMap) {
   const year = Number.parseInt(movie.release_date?.slice(0, 4), 10);
   if (!Number.isFinite(year) || !movie.title) return null;
@@ -99,6 +113,7 @@ function normalizeMovie(movie, genreMap) {
     rating: toNumber(movie.vote_average),
     votes: Math.round(toNumber(movie.vote_count)),
     director: "",
+    posterPath: movie.poster_path || "",
   };
 }
 
@@ -110,7 +125,8 @@ async function fetchTmdbMovies() {
     }
   }
 
-  const [genreData, ...moviePages] = await Promise.all([
+  const [allMovieTotal, genreData, ...moviePages] = await Promise.all([
+    fetchTmdbMovieTotal(),
     fetchTmdbJson("/genre/movie/list"),
     ...movieRequests,
   ]);
@@ -132,6 +148,7 @@ async function fetchTmdbMovies() {
 
   return {
     movies: [...moviesById.values()].map((movie) => normalizeMovie(movie, genreMap)).filter(Boolean),
+    allMovieTotal,
     yearTotals,
   };
 }
@@ -192,20 +209,20 @@ function niceMax(value) {
 }
 
 function TimelineBar({ decade, count, max, mode }) {
-  const h = count === 0 ? 0 : Math.max(6, (count / max) * 120);
+  const h = count === 0 ? 0 : Math.max(6, (count / max) * 100);
   return (
-    <div style={{ display: "grid", gridTemplateRows: "24px 124px 18px", alignItems: "end", justifyItems: "center", minWidth: 0 }}>
-      <div style={{ fontSize: 11, color: "#9a9ab4", alignSelf: "start", whiteSpace: "nowrap" }}>{count.toLocaleString()}</div>
-      <div style={{ height: 124, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 0, height: "100%" }}>
+      <div style={{ flex: "0 0 24px", fontSize: 11, color: "#9a9ab4", whiteSpace: "nowrap" }}>{count.toLocaleString()}</div>
+      <div style={{ flex: "1 1 auto", minHeight: 0, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
         <div style={{
           width: "clamp(18px, 56%, 38px)",
-          height: h,
+          height: `${h}%`,
           borderRadius: h > 0 ? "5px 5px 0 0" : 0,
           background: mode === "movies" ? "#4a9edd" : "#e85d8e",
           transition: "height 0.4s ease",
         }} />
       </div>
-      <div style={{ fontSize: 10, color: "#b8b8ca", textAlign: "center", whiteSpace: "nowrap" }}>{decade}</div>
+      <div style={{ flex: "0 0 16px", fontSize: 10, color: "#b8b8ca", textAlign: "center", whiteSpace: "nowrap", lineHeight: "16px" }}>{decade}</div>
     </div>
   );
 }
@@ -222,6 +239,7 @@ function GenreLineChart({ series, years, xLabel, yLabel }) {
   const maxYear = Math.max(...years);
   const yearSpan = Math.max(maxYear - minYear, 1);
   const yTicks = Array.from({ length: 6 }, (_, index) => (maxCount / 5) * index);
+  const xTicks = [...new Set([minYear, Math.round((minYear + maxYear) / 2), maxYear])];
 
   const x = (year) => margin.left + ((year - minYear) / yearSpan) * innerWidth;
   const y = (count) => margin.top + innerHeight - (count / maxCount) * innerHeight;
@@ -240,7 +258,7 @@ function GenreLineChart({ series, years, xLabel, yLabel }) {
             </g>
           );
         })}
-        {[minYear, Math.round((minYear + maxYear) / 2), maxYear].map((year) => (
+        {xTicks.map((year) => (
           <text key={year} x={x(year)} y={height - 36} textAnchor="middle" fill="#8b8ba3" fontSize="11">{year}</text>
         ))}
         <text x={margin.left + innerWidth / 2} y={height - 12} textAnchor="middle" fill="#c6c6d8" fontSize="12" fontWeight="600">{xLabel}</text>
@@ -286,7 +304,7 @@ function SearchResult({ item, mode }) {
   const detail = mode === "movies"
     ? `${item.year} / ${(item.genres || [item.genre]).join(", ")}`
     : `${item.artist} / ${item.year} / ${item.genre}`;
-  const metric = mode === "movies" ? item.rating.toFixed(1) : `${item.weeks} wks`;
+  const metric = mode === "movies" ? `★ ${item.rating.toFixed(1)}` : `${item.weeks} wks`;
   const subMetric = mode === "movies"
     ? `${item.votes.toLocaleString()} IMDb votes`
     : `${item.appearances.toLocaleString()} chart appearances`;
@@ -312,6 +330,27 @@ function SearchResult({ item, mode }) {
   );
 }
 
+function HomeMovieCard({ movie, rank }) {
+  const posterUrl = movie.posterPath ? `${TMDB_IMAGE_BASE}${movie.posterPath}` : "";
+
+  return (
+    <div style={{ background: "#17172b", border: "1px solid #2a2a4a", borderRadius: 8, overflow: "hidden", minWidth: 0 }}>
+      {posterUrl
+        ? <img src={posterUrl} alt={`${movie.title} poster`} style={{ width: "100%", aspectRatio: "2 / 3", objectFit: "cover", display: "block" }} />
+        : (
+          <div style={{ aspectRatio: "2 / 3", display: "grid", placeItems: "center", background: "#20203a", color: "#8b8ba3", fontSize: 12 }}>
+            No poster
+          </div>
+        )}
+      <div style={{ padding: 10 }}>
+        <div style={{ fontSize: 11, color: "#82c7f5", marginBottom: 4 }}>#{rank} / {movie.year}</div>
+        <div style={{ color: "#fff", fontWeight: 700, fontSize: 13, lineHeight: 1.25, minHeight: 34 }}>{movie.title}</div>
+        <div style={{ color: "#f4c430", fontSize: 12, fontWeight: 700, marginTop: 6 }}>★ {movie.rating.toFixed(1)}</div>
+      </div>
+    </div>
+  );
+}
+
 function getFilteredYears(yearRange, selectedDecade) {
   if (selectedDecade === "all") return yearRange;
   const [lo, hi] = DECADE_RANGE[selectedDecade];
@@ -319,12 +358,13 @@ function getFilteredYears(yearRange, selectedDecade) {
 }
 
 export default function PopCultureArchive() {
-  const [mode, setMode] = useState("movies");
+  const [mode, setMode] = useState("home");
   const [selectedDecade, setSelectedDecade] = useState("all");
   const [selectedGenre, setSelectedGenre] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [yearRange, setYearRange] = useState([1958, 2026]);
   const [movies, setMovies] = useState([]);
+  const [allMovieTotal, setAllMovieTotal] = useState(0);
   const [movieYearTotals, setMovieYearTotals] = useState({});
   const [songs, setSongs] = useState([]);
   const [movieGenreYears, setMovieGenreYears] = useState([]);
@@ -341,6 +381,7 @@ export default function PopCultureArchive() {
         const normalizedSongs = billboardRowsByYear.flat().map(normalizeSong).filter(Boolean);
 
         setMovies(normalizedMovies);
+        setAllMovieTotal(movieData.allMovieTotal);
         setMovieYearTotals(movieData.yearTotals);
         setSongs(normalizedSongs);
         setMovieGenreYears(buildMovieGenreYears(normalizedMovies));
@@ -354,7 +395,7 @@ export default function PopCultureArchive() {
     loadData();
   }, []);
 
-  const data = mode === "movies" ? movies : songs;
+  const data = mode === "songs" ? songs : movies;
   const [activeYearStart, activeYearEnd] = getFilteredYears(yearRange, selectedDecade);
 
   const allGenres = useMemo(() => {
@@ -434,18 +475,37 @@ export default function PopCultureArchive() {
   const hasMovieSubsetFilter = mode === "movies" && (selectedGenre !== "all" || searchQuery.trim());
   const visibleMovieTotal = useMemo(() => {
     if (mode !== "movies" || hasMovieSubsetFilter) return filtered.length;
+    if (selectedDecade === "all" && activeYearStart === TMDB_MOVIE_START_YEAR && activeYearEnd === TMDB_MOVIE_END_YEAR) {
+      return allMovieTotal || filtered.length;
+    }
 
     let count = 0;
     for (let year = activeYearStart; year <= activeYearEnd; year += 1) {
       count += movieYearTotals[year] || 0;
     }
     return count || filtered.length;
-  }, [mode, hasMovieSubsetFilter, filtered.length, activeYearStart, activeYearEnd, movieYearTotals]);
+  }, [mode, hasMovieSubsetFilter, selectedDecade, activeYearStart, activeYearEnd, allMovieTotal, filtered.length, movieYearTotals]);
 
   const maxDecadeCount = Math.max(...decadeCounts.map((item) => item.count), 1);
   const topItem = mode === "movies"
     ? [...filtered].sort((a, b) => b.rating - a.rating || b.votes - a.votes)[0]
     : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak)[0];
+  const topResults = useMemo(() => {
+    const sorted = mode === "movies"
+      ? [...filtered].sort((a, b) => b.rating - a.rating || b.votes - a.votes)
+      : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak);
+    return sorted.slice(0, RESULT_LIMIT);
+  }, [filtered, mode]);
+  const homeTopMovies = useMemo(() => {
+    return [...movies]
+      .sort((a, b) => b.rating - a.rating || b.votes - a.votes)
+      .slice(0, RESULT_LIMIT);
+  }, [movies]);
+  const homeTopSongs = useMemo(() => {
+    return [...songs]
+      .sort((a, b) => b.weeks - a.weeks || a.title.localeCompare(b.title))
+      .slice(0, RESULT_LIMIT);
+  }, [songs]);
   const avgRating = mode === "movies"
     ? (filtered.reduce((sum, item) => sum + item.rating, 0) / (filtered.length || 1)).toFixed(1)
     : null;
@@ -472,7 +532,7 @@ export default function PopCultureArchive() {
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-        {["movies", "songs"].map((item) => (
+        {["home", "movies", "songs"].map((item) => (
           <button key={item} onClick={() => { setMode(item); setSelectedGenre("all"); setSearchQuery(""); }}
             style={{
               padding: "8px 20px",
@@ -491,6 +551,48 @@ export default function PopCultureArchive() {
         ))}
       </div>
 
+      {loadState === "loading" && <div style={{ color: "#9a9ab4", marginBottom: 24 }}>Loading TMDB movies and Billboard CSV data...</div>}
+      {loadState === "error" && <div style={{ color: "#f06a5f", marginBottom: 24 }}>Could not load TMDB movies or Billboard CSV data.</div>}
+
+      {mode === "home" ? (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(220px, 1fr))", gap: 16, marginBottom: 28 }}>
+            <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+              <div style={{ fontSize: 12, color: "#9a9ab4", textTransform: "uppercase", marginBottom: 8 }}>Movies</div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: "#fff" }}>{(allMovieTotal || movies.length).toLocaleString()}</div>
+              <div style={{ fontSize: 12, color: "#82c7f5", marginTop: 6 }}>TMDB catalog total / {movies.length.toLocaleString()} sampled records</div>
+            </div>
+            <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+              <div style={{ fontSize: 12, color: "#9a9ab4", textTransform: "uppercase", marginBottom: 8 }}>Songs</div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: "#fff" }}>{songs.length.toLocaleString()}</div>
+              <div style={{ fontSize: 12, color: "#ff9cc1", marginTop: 6 }}>Billboard Hot 100 entries loaded</div>
+            </div>
+          </div>
+
+          <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20, marginBottom: 28 }}>
+            <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Top 10 movies</h3>
+            {homeTopMovies.length === 0
+              ? <div style={{ color: "#666680", fontSize: 13 }}>No movie data loaded yet.</div>
+              : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 14 }}>
+                  {homeTopMovies.map((movie, index) => (
+                    <HomeMovieCard key={`${movie.title}-${movie.year}-${index}`} movie={movie} rank={index + 1} />
+                  ))}
+                </div>
+              )}
+          </div>
+
+          <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+            <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Top 10 songs</h3>
+            {homeTopSongs.length === 0
+              ? <div style={{ color: "#666680", fontSize: 13 }}>No song data loaded yet.</div>
+              : homeTopSongs.map((song) => (
+                <SearchResult key={`home-song-${song.title}-${song.artist}-${song.year}`} item={song} mode="songs" />
+              ))}
+          </div>
+        </div>
+      ) : (
+        <>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
         <input
           type="text"
@@ -520,18 +622,64 @@ export default function PopCultureArchive() {
           <option value="all">{mode === "movies" ? "All genres" : "No song genre column"}</option>
           {mode === "movies" && allGenres.map((genre) => <option key={genre} value={genre}>{genre}</option>)}
         </select>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12, color: "#9a9ab4" }}>From</span>
-          <input type="range" min={1958} max={2026} value={yearRange[0]}
-            onChange={(event) => setYearRange([Math.min(Number(event.target.value), yearRange[1]), yearRange[1]])}
-            style={{ width: 100 }} />
-          <span style={{ fontSize: 13, color: "#82c7f5", minWidth: 36 }}>{yearRange[0]}</span>
-          <span style={{ fontSize: 12, color: "#9a9ab4" }}>to</span>
-          <input type="range" min={1958} max={2026} value={yearRange[1]}
-            onChange={(event) => setYearRange([yearRange[0], Math.max(Number(event.target.value), yearRange[0])])}
-            style={{ width: 100 }} />
-          <span style={{ fontSize: 13, color: "#82c7f5", minWidth: 36 }}>{yearRange[1]}</span>
-        </div>
+        <label style={{ display: "grid", gap: 4, fontSize: 11, color: "#9a9ab4", textTransform: "uppercase" }}>
+          From year
+          <select
+            value={yearRange[0]}
+            onChange={(event) => {
+              const year = Number(event.target.value);
+              setYearRange([year, Math.max(year, yearRange[1])]);
+            }}
+            style={{
+              background: "#17172b",
+              border: "1px solid #2a2a4a",
+              borderRadius: 8,
+              padding: "8px 14px",
+              color: "#fff",
+              fontSize: 13,
+            }}>
+            {YEAR_OPTIONS.map((year) => <option key={year} value={year}>{year}</option>)}
+          </select>
+        </label>
+        <label style={{ display: "grid", gap: 4, fontSize: 11, color: "#9a9ab4", textTransform: "uppercase" }}>
+          To year
+          <select
+            value={yearRange[1]}
+            onChange={(event) => {
+              const year = Number(event.target.value);
+              setYearRange([Math.min(yearRange[0], year), year]);
+            }}
+            style={{
+              background: "#17172b",
+              border: "1px solid #2a2a4a",
+              borderRadius: 8,
+              padding: "8px 14px",
+              color: "#fff",
+              fontSize: 13,
+            }}>
+            {YEAR_OPTIONS.map((year) => <option key={year} value={year}>{year}</option>)}
+          </select>
+        </label>
+        <label style={{ display: "grid", gap: 4, fontSize: 11, color: "#9a9ab4", textTransform: "uppercase" }}>
+          Through year
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, color: "#8b8ba3", minWidth: 32, textAlign: "right", textTransform: "none" }}>{TMDB_MOVIE_START_YEAR}</span>
+            <input
+              type="range"
+              min={TMDB_MOVIE_START_YEAR}
+              max={TMDB_MOVIE_END_YEAR}
+              value={yearRange[1]}
+              onChange={(event) => {
+                const year = Number(event.target.value);
+                setYearRange([TMDB_MOVIE_START_YEAR, year]);
+              }}
+              style={{ width: 180 }}
+              aria-label="Through year slider"
+            />
+            <span style={{ fontSize: 11, color: "#8b8ba3", minWidth: 32, textTransform: "none" }}>{TMDB_MOVIE_END_YEAR}</span>
+            <span style={{ fontSize: 12, color: "#82c7f5", minWidth: 86, textTransform: "none" }}>{TMDB_MOVIE_START_YEAR}-{yearRange[1]}</span>
+          </div>
+        </label>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 28, flexWrap: "wrap" }}>
@@ -552,9 +700,6 @@ export default function PopCultureArchive() {
         ))}
       </div>
 
-      {loadState === "loading" && <div style={{ color: "#9a9ab4", marginBottom: 24 }}>Loading TMDB movies and Billboard CSV data...</div>}
-      {loadState === "error" && <div style={{ color: "#f06a5f", marginBottom: 24 }}>Could not load TMDB movies or Billboard CSV data.</div>}
-
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 28 }}>
         <StatCard
           label={`Total ${mode}`}
@@ -563,7 +708,7 @@ export default function PopCultureArchive() {
             ? `${filtered.length.toLocaleString()} sampled records loaded`
             : `of ${data.length.toLocaleString()} loaded`}
         />
-        {mode === "movies" && <StatCard label="Avg rating" value={avgRating} />}
+        {mode === "movies" && <StatCard label="Avg rating" value={`★ ${avgRating}`} />}
         {mode === "songs" && <StatCard label="Total chart weeks" value={totalWeeks.toLocaleString()} />}
         {topItem && (
           <StatCard
@@ -579,6 +724,9 @@ export default function PopCultureArchive() {
         <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>
             {mode === "movies" ? "Top 10 genre trend" : "Hot 100 songs by year"}
+            <span style={{ color: "#82c7f5", marginLeft: 8 }}>
+              {activeYearStart === activeYearEnd ? activeYearStart : `${activeYearStart}-${activeYearEnd}`}
+            </span>
           </h3>
           {chartSeries.series.length === 0
             ? <div style={{ color: "#666680", fontSize: 13 }}>No data for selection</div>
@@ -592,7 +740,7 @@ export default function PopCultureArchive() {
             )}
         </div>
 
-        <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+        <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20, display: "flex", flexDirection: "column" }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>
             By decade
           </h3>
@@ -600,8 +748,9 @@ export default function PopCultureArchive() {
             display: "grid",
             gridTemplateColumns: "repeat(8, minmax(0, 1fr))",
             gap: 8,
-            height: 176,
-            alignItems: "end",
+            flex: "1 1 auto",
+            minHeight: 250,
+            alignItems: "stretch",
             overflow: "hidden",
           }}>
             {decadeCounts.map(({ decade, count }) => (
@@ -613,19 +762,21 @@ export default function PopCultureArchive() {
 
       <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>
-          {filtered.length.toLocaleString()} result{filtered.length !== 1 ? "s" : ""}
+          {mode === "movies" ? "Top 10 movies" : "Top 10 songs"}
         </h3>
         {filtered.length === 0
           ? <div style={{ color: "#666680", fontSize: 13 }}>No results match your filters.</div>
-          : filtered.slice(0, 12).map((item) => (
+          : topResults.map((item) => (
             <SearchResult key={`${mode}-${item.title}-${item.artist || item.year}`} item={item} mode={mode} />
           ))}
-        {filtered.length > 12 && (
+        {filtered.length > RESULT_LIMIT && (
           <div style={{ paddingTop: 12, fontSize: 12, color: "#666680" }}>
-            Showing 12 of {filtered.length.toLocaleString()} results
+            Showing top {RESULT_LIMIT} of {filtered.length.toLocaleString()} results
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }
