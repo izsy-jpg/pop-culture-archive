@@ -208,6 +208,7 @@ function InsightText({ children }) {
   );
 }
 
+// chart top 10 songs+
 function SongPerformanceChart({ songs, yearStart, yearEnd }) {
   const [tooltip, setTooltip] = useState(null);
   
@@ -222,10 +223,10 @@ function SongPerformanceChart({ songs, yearStart, yearEnd }) {
       .slice(0, 10);
   }, [songs, yearStart, yearEnd]);
 
-  const width = 300;
-  const rowHeight = 18;
+  const width = 700;
+  const rowHeight = 26;
   const height = Math.max(topSongs.length * rowHeight + 20, 30);
-  const margin = { top: 5, right: 30, bottom: 10, left: 110 };
+  const margin = { top: 5, right: 40, bottom: 10, left: 180 };
   const innerWidth = width - margin.left - margin.right;
   const maxWeeks = Math.max(...topSongs.map(s => s.weeksInYear), 1);
 
@@ -233,17 +234,17 @@ function SongPerformanceChart({ songs, yearStart, yearEnd }) {
   const y = (index) => margin.top + index * rowHeight;
 
   return (
-    <div style={{ position: "relative", maxWidth: 480  }}>
-      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+    <div style={{ position: "relative", maxWidth: "720px", margin: "0 auto" }}>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ display: "block" }}>
         {topSongs.map((song, index) => (
           <g key={song.title}>
-            <text x={margin.left - 3} y={y(index) + 9} textAnchor="end" fill="#c6c6d8" fontSize="8">
+            <text x={0} y={y(index) + 11} textAnchor="start" fill="#c6c6d8" fontSize="18">
               {song.title}
             </text>
-            <rect x={margin.left} y={y(index) + 3} width={x(song.weeksInYear)} height={rowHeight - 6} fill={COLORS[index % COLORS.length]} 
+            <rect x={margin.left} y={y(index) + 3} width={x(song.weeksInYear)} height={rowHeight - 15} fill={COLORS[index % COLORS.length]} 
                 onMouseEnter={(e) => setTooltip({ x: e.clientX, y: e.clientY, title: song.title, weeks: song.weeksInYear })}
                 onMouseLeave={() => setTooltip(null)} />
-            <text x={margin.left + x(song.weeksInYear) + 2} y={y(index) + 9} fill="#fff" fontSize="7">
+            <text x={margin.left + x(song.weeksInYear) + 2} y={y(index) + 12} fill="#fff" fontSize="15">
               {song.weeksInYear}
             </text>
           </g>
@@ -258,7 +259,6 @@ function SongPerformanceChart({ songs, yearStart, yearEnd }) {
   );
 }
 
-// FROM YOUR CODE: StatCard with fontSize prop (friend's version)
 function StatCard({ label, value, sub, fontSize = 26 }) {
   return (
     <div style={{
