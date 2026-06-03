@@ -398,8 +398,13 @@ export default function PopCultureArchive() {
 
   const allGenres = useMemo(() => {
     if (mode === "songs") return [...new Set(songs.map((song) => song.genre).filter(Boolean))].sort();
-    return [...new Set(movieGenreYears.map((row) => row.genre))].sort();
-  }, [mode, movieGenreYears, songs]);
+    
+    // Get unique genres from movies within the active year range
+    const relevantMovies = movies.filter(m => m.year >= activeYearStart && m.year <= activeYearEnd);
+    const genres = new Set();
+    relevantMovies.forEach(m => m.genres.forEach(g => genres.add(g)));
+    return [...genres].sort();
+  }, [mode, movies, activeYearStart, activeYearEnd, songs]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -629,64 +634,58 @@ export default function PopCultureArchive() {
           <option value="all">All genres</option>
           {allGenres.map((genre) => <option key={genre} value={genre}>{genre}</option>)}
         </select>
-        <label style={{ display: "grid", gap: 4, fontSize: 11, color: "#9a9ab4", textTransform: "uppercase" }}>
-          From year
-          <select
-            value={yearRange[0]}
-            onChange={(event) => {
-              const year = Number(event.target.value);
-              setYearRange([year, Math.max(year, yearRange[1])]);
-            }}
-            style={{
-              background: "#17172b",
-              border: "1px solid #2a2a4a",
-              borderRadius: 8,
-              padding: "8px 14px",
-              color: "#fff",
-              fontSize: 13,
-            }}>
-            {YEAR_OPTIONS.map((year) => <option key={year} value={year}>{year}</option>)}
+        
+        <div style={{ display: "flex", alignItems: "center", gap: 12, background: "#17172b", border: "1px solid #2a2a4a", borderRadius: 8, padding: "8px 14px" }}>
+          <style>{`
+            .slider-input {
+              pointer-events: none;
+              -webkit-appearance: none;
+              appearance: none;
+              background: transparent;
+              width: 100%;
+            }
+            .slider-input::-webkit-slider-thumb {
+              pointer-events: auto;
+              -webkit-appearance: none;
+              width: 14px;
+              height: 14px;
+              border-radius: 50%;
+              background: #4a9edd;
+              cursor: pointer;
+            }
+            .slider-input::-moz-range-thumb {
+              pointer-events: auto;
+              width: 14px;
+              height: 14px;
+              border-radius: 50%;
+              background: #4a9edd;
+              cursor: pointer;
+            }
+          `}</style>
+          <select value={yearRange[0]} onChange={(e) => setYearRange([Number(e.target.value), Math.max(Number(e.target.value), yearRange[1])])} style={{ background: "transparent", border: "none", color: "#fff", fontSize: 13, width: 60 }}>
+            {YEAR_OPTIONS.map(y => <option key={y} value={y} style={{ background: "#17172b" }}>{y}</option>)}
           </select>
-        </label>
-        <label style={{ display: "grid", gap: 4, fontSize: 11, color: "#9a9ab4", textTransform: "uppercase" }}>
-          To year
-          <select
-            value={yearRange[1]}
-            onChange={(event) => {
-              const year = Number(event.target.value);
-              setYearRange([Math.min(yearRange[0], year), year]);
-            }}
-            style={{
-              background: "#17172b",
-              border: "1px solid #2a2a4a",
-              borderRadius: 8,
-              padding: "8px 14px",
-              color: "#fff",
-              fontSize: 13,
-            }}>
-            {YEAR_OPTIONS.map((year) => <option key={year} value={year}>{year}</option>)}
-          </select>
-        </label>
-        <label style={{ display: "grid", gap: 4, fontSize: 11, color: "#9a9ab4", textTransform: "uppercase" }}>
-          Through year
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11, color: "#8b8ba3", minWidth: 32, textAlign: "right", textTransform: "none" }}>{TMDB_MOVIE_START_YEAR}</span>
-            <input
-              type="range"
-              min={TMDB_MOVIE_START_YEAR}
-              max={TMDB_MOVIE_END_YEAR}
-              value={yearRange[1]}
-              onChange={(event) => {
-                const year = Number(event.target.value);
-                setYearRange([TMDB_MOVIE_START_YEAR, year]);
-              }}
-              style={{ width: 180 }}
-              aria-label="Through year slider"
-            />
-            <span style={{ fontSize: 11, color: "#8b8ba3", minWidth: 32, textTransform: "none" }}>{TMDB_MOVIE_END_YEAR}</span>
-            <span style={{ fontSize: 12, color: "#82c7f5", minWidth: 86, textTransform: "none" }}>{TMDB_MOVIE_START_YEAR}-{yearRange[1]}</span>
+          <div style={{ position: "relative", width: 150, height: 20 }}>
+            {(() => {
+              const min = TMDB_MOVIE_START_YEAR;
+              const max = TMDB_MOVIE_END_YEAR;
+              const range = max - min;
+              const left = ((yearRange[0] - min) / range) * 100;
+              const right = ((yearRange[1] - min) / range) * 100;
+              return (
+                <div style={{
+                  position: "absolute", top: 10, left: 0, right: 0, height: 4, borderRadius: 2,
+                  background: `linear-gradient(to right, #343452 ${left}%, #fff ${left}%, #fff ${right}%, #343452 ${right}%)`
+                }} />
+              );
+            })()}
+            <input type="range" className="slider-input" min={TMDB_MOVIE_START_YEAR} max={TMDB_MOVIE_END_YEAR} value={yearRange[0]} onChange={(e) => setYearRange([Math.min(Number(e.target.value), yearRange[1]), yearRange[1]])} style={{ position: "absolute", top: 5 }} />
+            <input type="range" className="slider-input" min={TMDB_MOVIE_START_YEAR} max={TMDB_MOVIE_END_YEAR} value={yearRange[1]} onChange={(e) => setYearRange([yearRange[0], Math.max(Number(e.target.value), yearRange[0])])} style={{ position: "absolute", top: 5 }} />
           </div>
-        </label>
+          <select value={yearRange[1]} onChange={(e) => setYearRange([Math.min(yearRange[0], Number(e.target.value)), Number(e.target.value)])} style={{ background: "transparent", border: "none", color: "#fff", fontSize: 13, width: 60 }}>
+            {YEAR_OPTIONS.map(y => <option key={y} value={y} style={{ background: "#17172b" }}>{y}</option>)}
+          </select>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 28, flexWrap: "wrap" }}>
