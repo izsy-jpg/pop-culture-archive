@@ -623,13 +623,39 @@ function RatingYearScatterPlot({ movies, onMovieSelect }) {
 }
 
 function SearchResult({ item, mode }) {
-  const detail = mode === "movies"
+  const isMovie = mode === "movies";
+  const detail = isMovie
     ? `${item.year} / ${(item.genres || [item.genre]).join(", ")}`
-    : `${item.artist} / ${item.year} / ${item.genre}`;
-  const metric = mode === "movies" ? `★ ${item.rating.toFixed(1)}` : `${item.weeks} wks`;
-  const subMetric = mode === "movies"
-    ? `${item.votes.toLocaleString()} IMDb votes`
-    : `${item.appearances.toLocaleString()} chart appearances`;
+    : `${item.artist} / ${item.genre}`;
+  
+  const rightContent = isMovie ? (
+    <div style={{ textAlign: "right" }}>
+      <div style={{ color: "#f4c430", fontWeight: 700 }}>★ {item.rating.toFixed(1)}</div>
+      <div style={{ fontSize: 13, color: "#9a9ab4" }}>{item.votes.toLocaleString()} votes</div>
+    </div>
+  ) : (
+    <div style={{ display: "flex", gap: "20px" }}>
+      {item.years ? (
+        <>
+          {item.years.map(y => (
+            <div key={y} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{y}</div>
+            <div style={{ fontSize: 15, color: "#e85d8e", whiteSpace: "nowrap" }}>{item.weeks} weeks</div>
+            </div>
+            ))}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#f4c430" }}>Total</div>
+              <div style={{ fontSize: 15, color: "#e85d8e", whiteSpace: "nowrap" }}>{item.historicalStats?.totalWeeks || item.weeks} weeks</div>
+            </div>
+            </>
+            ) : (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{item.year}</div>
+            <div style={{ fontSize: 15, color: "#e85d8e" }}>{item.weeks} weeks</div>
+            </div>
+            )}
+    </div>
+  );
 
   return (
     <div style={{
@@ -637,16 +663,15 @@ function SearchResult({ item, mode }) {
       justifyContent: "space-between",
       alignItems: "center",
       gap: 16,
-      padding: "11px 0",
+      padding: "16px 0",
       borderBottom: "1px solid #20203a",
     }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: 650, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</div>
-        <div style={{ fontSize: 12, color: "#9a9ab4", marginTop: 3 }}>{detail}</div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontWeight: 650, color: "#fff", fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</div>
+        <div style={{ fontSize: 14, color: "#9a9ab4", marginTop: 6 }}>{detail}</div>
       </div>
-      <div style={{ textAlign: "right", flex: "0 0 auto" }}>
-        <div style={{ color: mode === "movies" ? "#f4c430" : "#e85d8e", fontWeight: 700 }}>{metric}</div>
-        <div style={{ fontSize: 11, color: "#9a9ab4" }}>{subMetric}</div>
+      <div style={{ flex: "0 0 auto" }}>
+        {rightContent}
       </div>
     </div>
   );
@@ -960,12 +985,28 @@ export default function PopCultureArchive() {
           Promise.all(BILLBOARD_DATASET_URLS.map((url) => parseCsv(url))),
         ]);
         const normalizedMovies = movieData.movies;
-        const normalizedSongs = billboardRowsByYear.flat().map(normalizeSong).filter(Boolean);
+        const rawSongs = billboardRowsByYear.flat().map(normalizeSong).filter(Boolean);
+        
+        // Enrich songs with global statistics
+        const songStats = new Map();
+        rawSongs.forEach(song => {
+          const key = `${song.title}-${song.artist}`;
+          const current = songStats.get(key) || { totalWeeks: 0, totalAppearances: 0 };
+          songStats.set(key, {
+            totalWeeks: current.totalWeeks + song.weeks,
+            totalAppearances: current.totalAppearances + song.appearances
+          });
+        });
+        
+        const enrichedSongs = rawSongs.map(song => ({
+          ...song,
+          historicalStats: songStats.get(`${song.title}-${song.artist}`)
+        }));
 
         setMovies(normalizedMovies);
         setAllMovieTotal(movieData.allMovieTotal);
         setMovieYearTotals(movieData.yearTotals);
-        setSongs(normalizedSongs);
+        setSongs(enrichedSongs);
         setMovieGenreYears(buildMovieGenreYears(normalizedMovies));
         setLoadState("ready");
       } catch (error) {
@@ -992,7 +1033,7 @@ export default function PopCultureArchive() {
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return data.filter((item) => {
+    let result = data.filter((item) => {
       if (item.year < activeYearStart || item.year > activeYearEnd) return false;
       if (mode === "movies" && selectedGenre !== "all" && !(item.genres || [item.genre]).includes(selectedGenre)) return false;
       if (mode === "songs" && selectedGenre !== "all" && item.genre !== selectedGenre) return false;
@@ -1012,6 +1053,22 @@ export default function PopCultureArchive() {
       }
       return true;
     });
+
+    if (mode === "songs") {
+      const aggregated = new Map();
+      result.forEach(song => {
+        const key = `${song.title}-${song.artist}`;
+        if (!aggregated.has(key)) {
+          aggregated.set(key, { ...song, years: new Set() });
+        }
+        aggregated.get(key).years.add(song.year);
+      });
+      result = [...aggregated.values()].map(s => ({
+        ...s,
+        years: [...s.years].sort((a,b) => a-b)
+      }));
+    }
+    return result;
   }, [data, activeYearStart, activeYearEnd, selectedGenre, searchQuery, mode]);
 
   const ratedMoviesForCharts = useMemo(() => {
@@ -1216,6 +1273,7 @@ export default function PopCultureArchive() {
     ? [...qualifiedTopMovies].sort((a, b) => b.rating - a.rating || b.votes - a.votes)[0]
     : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak)[0];
   const topResults = useMemo(() => {
+    // Already filtered by yearRange in the 'filtered' memo
     const sorted = mode === "movies"
       ? [...qualifiedTopMovies].sort((a, b) => b.rating - a.rating || b.votes - a.votes)
       : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak);
@@ -1237,7 +1295,7 @@ export default function PopCultureArchive() {
       .slice(0, RESULT_LIMIT);
   }, [songs]);
   const totalWeeks = mode === "songs"
-    ? filtered.reduce((sum, item) => sum + item.weeks, 0)
+    ? filtered.reduce((sum, item) => sum + (item.historicalStats?.totalWeeks || item.weeks), 0)
     : null;
   const movieShareInsight = useMemo(() => {
     if (mode !== "movies" || movieShareSeries.series.length === 0) return "";
@@ -1435,7 +1493,14 @@ export default function PopCultureArchive() {
 
       <div style={{ display: "flex", gap: 8, marginBottom: 28, flexWrap: "wrap" }}>
         {["all", ...DECADES].map((decade) => (
-          <button key={decade} onClick={() => setSelectedDecade(decade)}
+          <button key={decade} onClick={() => {
+            setSelectedDecade(decade);
+            if (decade === "all") {
+              setYearRange([TMDB_MOVIE_START_YEAR, TMDB_MOVIE_END_YEAR]);
+            } else {
+              setYearRange(DECADE_RANGE[decade]);
+            }
+          }}
             style={{
               padding: "5px 14px",
               borderRadius: 999,
