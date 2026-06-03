@@ -24,6 +24,8 @@ const COLORS = [
 ];
 
 const RESULT_LIMIT = 10;
+const GENRE_SHARE_LIMIT = 5;
+const MIN_TOP_MOVIE_VOTES = 100;
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w342";
 const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY || "71790251f947beef32f979fe5ba1c0fe";
@@ -182,6 +184,31 @@ function buildMovieGenreYears(movies) {
   });
 }
 
+function isRatedMovie(movie) {
+  return Number.isFinite(movie.rating) && movie.rating > 0;
+}
+
+function isQualifiedTopMovie(movie) {
+  return isRatedMovie(movie) && movie.votes >= MIN_TOP_MOVIE_VOTES;
+}
+
+function smoothSharePoints(points) {
+  return points.map((point, index) => {
+    const windowPoints = points.slice(Math.max(0, index - 1), Math.min(points.length, index + 2));
+    const share = windowPoints.reduce((sum, item) => sum + item.share, 0) / windowPoints.length;
+    return { ...point, share };
+  });
+}
+
+function InsightText({ children }) {
+  if (!children) return null;
+  return (
+    <div style={{ color: "#c6c6d8", fontSize: 13, lineHeight: 1.45, margin: "-6px 0 16px" }}>
+      {children}
+    </div>
+  );
+}
+
 function StatCard({ label, value, sub }) {
   return (
     <div style={{
@@ -190,6 +217,7 @@ function StatCard({ label, value, sub }) {
       borderRadius: 8,
       padding: "16px 18px",
       minWidth: 150,
+      boxSizing: "border-box",
     }}>
       <div style={{ fontSize: 12, color: "#9a9ab4", marginBottom: 6, textTransform: "uppercase" }}>{label}</div>
       <div style={{ fontSize: 26, fontWeight: 700, color: "#fff", lineHeight: 1.1 }}>{value}</div>
@@ -298,6 +326,302 @@ function GenreLineChart({ series, years, xLabel, yLabel }) {
   );
 }
 
+function GenreShareAreaChart({ series, years, activeGenre, onGenreSelect }) {
+  const [hoveredGenre, setHoveredGenre] = useState("");
+  const width = 720;
+  const height = 320;
+  const margin = { top: 18, right: 28, bottom: 56, left: 70 };
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+  const minYear = Math.min(...years);
+  const maxYear = Math.max(...years);
+  const yearSpan = Math.max(maxYear - minYear, 1);
+  const ticks = [0, 25, 50, 75, 100];
+
+  const x = (year) => margin.left + ((year - minYear) / yearSpan) * innerWidth;
+  const y = (share) => margin.top + innerHeight - (share / 100) * innerHeight;
+  const cumulative = new Map(years.map((year) => [year, 0]));
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" style={{ width: "100%", height: "auto", display: "block" }}>
+        {ticks.map((tick) => {
+          const tickY = y(tick);
+          return (
+            <g key={tick}>
+              <line x1={margin.left} y1={tickY} x2={margin.left + innerWidth} y2={tickY} stroke={tick === 0 ? "#343452" : "#20203a"} />
+              <text x={margin.left - 10} y={tickY + 4} textAnchor="end" fill="#8b8ba3" fontSize="11">{tick}%</text>
+            </g>
+          );
+        })}
+        {[minYear, Math.round((minYear + maxYear) / 2), maxYear].map((year) => (
+          <text key={year} x={x(year)} y={height - 26} textAnchor="middle" fill="#8b8ba3" fontSize="11">{year}</text>
+        ))}
+        {series.map((item, index) => {
+          const upper = item.points.map((point) => {
+            const base = cumulative.get(point.year) || 0;
+            const top = Math.min(100, base + point.share);
+            cumulative.set(point.year, top);
+            return `${x(point.year)},${y(top)}`;
+          });
+          const lower = [...item.points].reverse().map((point) => {
+            const top = cumulative.get(point.year) || 0;
+            const base = Math.max(0, top - point.share);
+            return `${x(point.year)},${y(base)}`;
+          });
+          const isDimmed = hoveredGenre && hoveredGenre !== item.name;
+          const isSelected = activeGenre === item.name;
+          return (
+            <polygon
+              key={item.name}
+              points={[...upper, ...lower].join(" ")}
+              fill={COLORS[index % COLORS.length]}
+              opacity={isDimmed ? 0.28 : 0.82}
+              stroke={isSelected ? "#fff" : "#0d0d1a"}
+              strokeWidth={isSelected ? "2.4" : "1"}
+              style={{ cursor: "pointer", transition: "opacity 0.18s ease" }}
+              onMouseEnter={() => setHoveredGenre(item.name)}
+              onMouseLeave={() => setHoveredGenre("")}
+              onClick={() => onGenreSelect(activeGenre === item.name ? "all" : item.name)}
+            >
+              <title>{`${item.name}: click to ${activeGenre === item.name ? "clear" : "filter"}`}</title>
+            </polygon>
+          );
+        })}
+      </svg>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
+        {series.map((item, index) => (
+          <button
+            key={item.name}
+            onClick={() => onGenreSelect(activeGenre === item.name ? "all" : item.name)}
+            onMouseEnter={() => setHoveredGenre(item.name)}
+            onMouseLeave={() => setHoveredGenre("")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              color: activeGenre === item.name ? "#fff" : "#c6c6d8",
+              background: activeGenre === item.name ? "#ffffff14" : "transparent",
+              border: "1px solid",
+              borderColor: activeGenre === item.name ? "#ffffff33" : "transparent",
+              borderRadius: 6,
+              padding: "3px 6px",
+              cursor: "pointer",
+            }}
+          >
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: COLORS[index % COLORS.length] }} />
+            {item.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function percentile(values, p) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * p;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+}
+
+function RatingDistributionChart({ distributions, selectedDecade, onDecadeSelect }) {
+  const width = 420;
+  const height = 320;
+  const margin = { top: 20, right: 28, bottom: 48, left: 44 };
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+  const slot = innerWidth / distributions.length;
+  const y = (rating) => margin.top + innerHeight - (rating / 10) * innerHeight;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" style={{ width: "100%", height: "auto", display: "block" }}>
+      {[0, 2, 4, 6, 8, 10].map((tick) => (
+        <g key={tick}>
+          <line x1={margin.left} y1={y(tick)} x2={margin.left + innerWidth} y2={y(tick)} stroke={tick === 0 ? "#343452" : "#20203a"} />
+          <text x={margin.left - 8} y={y(tick) + 4} textAnchor="end" fill="#8b8ba3" fontSize="11">{tick}</text>
+        </g>
+      ))}
+      {distributions.map((item, index) => {
+        const cx = margin.left + slot * index + slot / 2;
+        const boxWidth = Math.min(42, slot * 0.52);
+        const hasData = item.count > 0;
+        const isSelected = selectedDecade === item.decade;
+        return (
+          <g
+            key={item.decade}
+            opacity={hasData ? 1 : 0.35}
+            onClick={() => onDecadeSelect(isSelected ? "all" : item.decade)}
+            style={{ cursor: "pointer" }}
+          >
+            {hasData && (
+              <>
+                <line x1={cx} y1={y(item.min)} x2={cx} y2={y(item.max)} stroke={isSelected ? "#fff" : "#82c7f5"} strokeWidth={isSelected ? "2.4" : "1.6"} />
+                <line x1={cx - boxWidth / 2} y1={y(item.min)} x2={cx + boxWidth / 2} y2={y(item.min)} stroke="#82c7f5" />
+                <line x1={cx - boxWidth / 2} y1={y(item.max)} x2={cx + boxWidth / 2} y2={y(item.max)} stroke="#82c7f5" />
+                <rect x={cx - boxWidth / 2} y={y(item.q3)} width={boxWidth} height={Math.max(2, y(item.q1) - y(item.q3))} fill={isSelected ? "#ffffff24" : "#4a9edd44"} stroke={isSelected ? "#fff" : "#4a9edd"} />
+                <line x1={cx - boxWidth / 2} y1={y(item.median)} x2={cx + boxWidth / 2} y2={y(item.median)} stroke="#f4c430" strokeWidth="2" />
+                <circle cx={cx} cy={y(item.avg)} r="3" fill="#e85d8e">
+                  <title>{`${item.decade}: avg ${item.avg.toFixed(1)}, ${item.count} rated movies. Click to ${isSelected ? "clear" : "filter"}.`}</title>
+                </circle>
+              </>
+            )}
+            <text x={cx} y={height - 20} textAnchor="middle" fill={isSelected ? "#fff" : "#b8b8ca"} fontSize="10" fontWeight={isSelected ? "700" : "400"}>{item.decade}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function GenreRatingBarChart({ points, activeGenre, onGenreSelect }) {
+  const width = 720;
+  const rowHeight = 22;
+  const height = Math.max(280, 46 + points.length * rowHeight);
+  const margin = { top: 18, right: 120, bottom: 28, left: 112 };
+  const innerWidth = width - margin.left - margin.right;
+  const maxAvg = 10;
+  const x = (rating) => margin.left + (rating / maxAvg) * innerWidth;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" style={{ width: "100%", height: "auto", display: "block" }}>
+      {[0, 2, 4, 6, 8, 10].map((tick) => (
+        <g key={tick}>
+          <line x1={x(tick)} y1={margin.top} x2={x(tick)} y2={height - margin.bottom} stroke={tick === 0 ? "#343452" : "#20203a"} />
+          <text x={x(tick)} y={height - 8} textAnchor="middle" fill="#8b8ba3" fontSize="11">{tick}</text>
+        </g>
+      ))}
+      {points.map((point, index) => (
+        <g
+          key={point.genre}
+          onClick={() => onGenreSelect(activeGenre === point.genre ? "all" : point.genre)}
+          style={{ cursor: "pointer" }}
+        >
+          <text x={margin.left - 10} y={margin.top + index * rowHeight + 15} textAnchor="end" fill={activeGenre === point.genre ? "#fff" : "#c6c6d8"} fontSize="11" fontWeight={activeGenre === point.genre ? "700" : "400"}>{point.genre}</text>
+          <rect x={margin.left} y={margin.top + index * rowHeight + 3} width={Math.max(2, x(point.avg) - margin.left)} height="14" rx="4" fill={COLORS[index % COLORS.length]} opacity={activeGenre && activeGenre !== point.genre ? 0.35 : 0.8}>
+            <title>{`${point.genre}: ${point.avg.toFixed(1)} avg rating across ${point.count} sampled rated movies. Click to filter.`}</title>
+          </rect>
+          <text x={x(point.avg) + 8} y={margin.top + index * rowHeight + 15} fill="#f4c430" fontSize="11" fontWeight="700">★ {point.avg.toFixed(1)}</text>
+          <text x={width - margin.right + 12} y={margin.top + index * rowHeight + 15} fill="#8b8ba3" fontSize="10">{point.count} sampled</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function DecadesAtAGlance({ items }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+      {items.map((item) => (
+        <div key={item.decade} style={{ background: "#17172b", border: "1px solid #2a2a4a", borderRadius: 8, padding: 14 }}>
+          <div style={{ fontSize: 11, color: "#9a9ab4", textTransform: "uppercase", marginBottom: 8 }}>{item.decade}</div>
+          <div style={{ fontSize: 18, color: "#fff", fontWeight: 800 }}>{item.genre || "No data"}</div>
+          {item.movie && (
+            <>
+              <div style={{ fontSize: 12, color: "#82c7f5", marginTop: 8 }}>{item.movie.title}</div>
+              <div style={{ fontSize: 11, color: "#9a9ab4", marginTop: 4 }}>Defining film by rating: ★ {item.movie.rating.toFixed(1)}</div>
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RatingSparklineCard({ points }) {
+  const width = 210;
+  const height = 54;
+  const minYear = Math.min(...points.map((point) => point.year));
+  const maxYear = Math.max(...points.map((point) => point.year));
+  const yearSpan = Math.max(maxYear - minYear, 1);
+  const minRating = Math.min(...points.map((point) => point.avg), 0);
+  const maxRating = Math.max(...points.map((point) => point.avg), 10);
+  const ratingSpan = Math.max(maxRating - minRating, 1);
+  const path = points.map((point, index) => {
+    const px = ((point.year - minYear) / yearSpan) * width;
+    const py = height - ((point.avg - minRating) / ratingSpan) * height;
+    return `${index === 0 ? "M" : "L"} ${px.toFixed(1)} ${py.toFixed(1)}`;
+  }).join(" ");
+  const latest = points[points.length - 1];
+  const first = points[0];
+  const delta = latest && first ? latest.avg - first.avg : 0;
+
+  return (
+    <div style={{ background: "#17172b", border: "1px solid #2a2a4a", borderRadius: 8, padding: "16px 18px", minWidth: "min(240px, 100%)", boxSizing: "border-box" }}>
+      <div style={{ fontSize: 12, color: "#9a9ab4", marginBottom: 6, textTransform: "uppercase" }}>Avg rating trend</div>
+      <div style={{ fontSize: 26, fontWeight: 700, color: "#fff", lineHeight: 1.1 }}>★ {latest ? latest.avg.toFixed(1) : "0.0"}</div>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: 54, marginTop: 8, display: "block" }}>
+        <path d={path} fill="none" stroke="#4a9edd" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <div style={{ fontSize: 12, color: delta >= 0 ? "#4ade80" : "#f06a5f" }}>{delta >= 0 ? "+" : ""}{delta.toFixed(1)} since {first?.year || ""}</div>
+    </div>
+  );
+}
+
+function TopRatedGenresCard({ items }) {
+  return (
+    <div style={{ background: "#17172b", border: "1px solid #2a2a4a", borderRadius: 8, padding: "16px 18px", minWidth: "min(260px, 100%)", boxSizing: "border-box" }}>
+      <div style={{ fontSize: 12, color: "#9a9ab4", marginBottom: 10, textTransform: "uppercase" }}>Top rated per genre</div>
+      {items.slice(0, 4).map((item) => (
+        <div key={item.genre} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "5px 0", borderTop: "1px solid #20203a" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: "#fff", fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.genre}</div>
+            <div style={{ color: "#9a9ab4", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.movie.title}</div>
+          </div>
+          <div style={{ color: "#f4c430", fontSize: 12, fontWeight: 800, flex: "0 0 auto" }}>★ {item.movie.rating.toFixed(1)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RatingYearScatterPlot({ movies, onMovieSelect }) {
+  const width = 720;
+  const height = 320;
+  const margin = { top: 18, right: 28, bottom: 56, left: 58 };
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+  const minYear = Math.min(...movies.map((movie) => movie.year), TMDB_MOVIE_START_YEAR);
+  const maxYear = Math.max(...movies.map((movie) => movie.year), TMDB_MOVIE_END_YEAR);
+  const yearSpan = Math.max(maxYear - minYear, 1);
+  const x = (year) => margin.left + ((year - minYear) / yearSpan) * innerWidth;
+  const y = (rating) => margin.top + innerHeight - (rating / 10) * innerHeight;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" style={{ width: "100%", height: "auto", display: "block" }}>
+      {[0, 2, 4, 6, 8, 10].map((tick) => (
+        <g key={tick}>
+          <line x1={margin.left} y1={y(tick)} x2={margin.left + innerWidth} y2={y(tick)} stroke={tick === 0 ? "#343452" : "#20203a"} />
+          <text x={margin.left - 8} y={y(tick) + 4} textAnchor="end" fill="#8b8ba3" fontSize="11">{tick}</text>
+        </g>
+      ))}
+      {[minYear, Math.round((minYear + maxYear) / 2), maxYear].map((year) => (
+        <text key={year} x={x(year)} y={height - 24} textAnchor="middle" fill="#8b8ba3" fontSize="11">{year}</text>
+      ))}
+      {movies.map((movie, index) => (
+        <circle
+          key={`${movie.title}-${movie.year}-${index}`}
+          cx={x(movie.year)}
+          cy={y(movie.rating)}
+          r="2.4"
+          fill="#e85d8e"
+          opacity="0.34"
+          style={{ cursor: "pointer" }}
+          onClick={() => onMovieSelect(movie)}
+        >
+          <title>{`${movie.title}, ${movie.year}: ${movie.rating.toFixed(1)} from ${movie.votes.toLocaleString()} votes. Click to isolate.`}</title>
+        </circle>
+      ))}
+      <text x={margin.left + innerWidth / 2} y={height - 8} textAnchor="middle" fill="#c6c6d8" fontSize="12" fontWeight="600">Release year</text>
+      <text x={16} y={margin.top + innerHeight / 2} textAnchor="middle" fill="#c6c6d8" fontSize="12" fontWeight="600" transform={`rotate(-90 16 ${margin.top + innerHeight / 2})`}>Rating</text>
+    </svg>
+  );
+}
+
 function SearchResult({ item, mode }) {
   const detail = mode === "movies"
     ? `${item.year} / ${(item.genres || [item.genre]).join(", ")}`
@@ -353,6 +677,266 @@ function getFilteredYears(yearRange, selectedDecade) {
   if (selectedDecade === "all") return yearRange;
   const [lo, hi] = DECADE_RANGE[selectedDecade];
   return [Math.max(yearRange[0], lo), Math.min(yearRange[1], hi)];
+}
+
+function getMovieDecade(year) {
+  return DECADES.find((decade) => {
+    const [lo, hi] = DECADE_RANGE[decade];
+    return year >= lo && year <= hi;
+  }) || "";
+}
+
+function getGenreAverage(movies, genre) {
+  const genreMovies = movies.filter((movie) => isRatedMovie(movie) && (movie.genres.length ? movie.genres : ["Unknown"]).includes(genre));
+  const sum = genreMovies.reduce((total, movie) => total + movie.rating, 0);
+  return {
+    avg: genreMovies.length ? sum / genreMovies.length : 0,
+    count: genreMovies.length,
+  };
+}
+
+function getRatingPercentile(movie, movies, genre) {
+  const comparison = movies.filter((item) => isRatedMovie(item) && (item.genres.length ? item.genres : ["Unknown"]).includes(genre));
+  if (!isRatedMovie(movie) || comparison.length === 0) return null;
+  const belowOrEqual = comparison.filter((item) => item.rating <= movie.rating).length;
+  return Math.round((belowOrEqual / comparison.length) * 100);
+}
+
+function PercentileGauge({ movie, genreAverage, percentile }) {
+  const ratingPosition = Math.max(0, Math.min(100, (movie.rating / 10) * 100));
+  const avgPosition = Math.max(0, Math.min(100, (genreAverage / 10) * 100));
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12, color: "#c6c6d8", marginBottom: 8 }}>
+        <span>How it compares</span>
+        <span>{percentile ? `Top ${Math.max(1, 101 - percentile)}% of genre sample` : "No rating context"}</span>
+      </div>
+      <div style={{ position: "relative", height: 12, borderRadius: 999, background: "#20203a", overflow: "hidden" }}>
+        <div style={{ width: `${ratingPosition}%`, height: "100%", background: "linear-gradient(90deg, #4a9edd, #e85d8e)" }} />
+        <div style={{ position: "absolute", left: `${avgPosition}%`, top: -4, width: 2, height: 20, background: "#f4c430" }}>
+          <title>Genre average</title>
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 8, fontSize: 12, color: "#9a9ab4" }}>
+        <span>{movie.rating.toFixed(1)} movie rating</span>
+        <span>{genreAverage.toFixed(1)} genre average</span>
+      </div>
+    </div>
+  );
+}
+
+function MovieDetailCard({ movie, allMovies }) {
+  const posterUrl = movie.posterPath ? `${TMDB_IMAGE_BASE}${movie.posterPath}` : "";
+  const primaryGenre = movie.genres[0] || movie.genre || "Unknown";
+  const decade = getMovieDecade(movie.year);
+  const genreStats = getGenreAverage(allMovies, primaryGenre);
+  const percentile = getRatingPercentile(movie, allMovies, primaryGenre);
+
+  return (
+    <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20, display: "grid", gridTemplateColumns: "minmax(120px, 180px) minmax(0, 1fr)", gap: 18 }}>
+      {posterUrl
+        ? <img src={posterUrl} alt={`${movie.title} poster`} style={{ width: "100%", borderRadius: 8, aspectRatio: "2 / 3", objectFit: "cover" }} />
+        : <div style={{ borderRadius: 8, aspectRatio: "2 / 3", display: "grid", placeItems: "center", background: "#20203a", color: "#8b8ba3", fontSize: 12 }}>No poster</div>}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <h2 style={{ margin: 0, color: "#fff", fontSize: 28, lineHeight: 1.08 }}>{movie.title}</h2>
+          <span style={{ color: "#82c7f5", fontSize: 16, fontWeight: 700 }}>{movie.year}</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          {(movie.genres.length ? movie.genres : [movie.genre]).map((genre) => (
+            <span key={genre} style={{ border: "1px solid #2a2a4a", borderRadius: 999, padding: "4px 10px", color: "#c6c6d8", fontSize: 12 }}>{genre}</span>
+          ))}
+        </div>
+        <div style={{ marginTop: 18, display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ color: "#f4c430", fontSize: 38, fontWeight: 850, lineHeight: 1 }}>★ {movie.rating.toFixed(1)}</div>
+          <div style={{ color: "#9a9ab4", fontSize: 13 }}>{movie.votes.toLocaleString()} votes</div>
+        </div>
+        <div style={{ marginTop: 10, color: "#c6c6d8", fontSize: 13 }}>
+          {percentile
+            ? `Ranks in the top ${Math.max(1, 101 - percentile)}% of sampled ${primaryGenre} films${decade ? ` from the ${decade}` : ""}.`
+            : "This movie does not have enough rating context in the loaded sample."}
+        </div>
+        <PercentileGauge movie={movie} genreAverage={genreStats.avg} percentile={percentile} />
+      </div>
+    </div>
+  );
+}
+
+function PeerList({ movie, allMovies }) {
+  const primaryGenre = movie.genres[0] || movie.genre || "Unknown";
+  const decade = getMovieDecade(movie.year);
+  const [lo, hi] = DECADE_RANGE[decade] || [TMDB_MOVIE_START_YEAR, TMDB_MOVIE_END_YEAR];
+  const peers = allMovies
+    .filter((item) => item.title !== movie.title && item.year >= lo && item.year <= hi)
+    .filter((item) => (item.genres.length ? item.genres : ["Unknown"]).includes(primaryGenre))
+    .filter(isQualifiedTopMovie)
+    .sort((a, b) => b.rating - a.rating || b.votes - a.votes)
+    .slice(0, 5);
+
+  return (
+    <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+      <h3 style={{ margin: "0 0 14px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Genre peers</h3>
+      <InsightText>{peers.length ? `Closest context: highly rated ${primaryGenre} films from the ${decade || "same era"} in the loaded sample.` : `No qualified ${primaryGenre} peers from this decade in the loaded sample.`}</InsightText>
+      {peers.map((peer) => (
+        <SearchResult key={`${peer.title}-${peer.year}`} item={peer} mode="movies" />
+      ))}
+    </div>
+  );
+}
+
+function SearchContextScatter({ allMovies, highlightedMovies, onMovieSelect }) {
+  const contextMovies = allMovies.filter(isRatedMovie);
+  const highlightedTitles = new Set(highlightedMovies.map((movie) => `${movie.title}|${movie.year}`));
+  const width = 720;
+  const height = 320;
+  const margin = { top: 18, right: 28, bottom: 56, left: 58 };
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+  const minYear = Math.min(...contextMovies.map((movie) => movie.year), TMDB_MOVIE_START_YEAR);
+  const maxYear = Math.max(...contextMovies.map((movie) => movie.year), TMDB_MOVIE_END_YEAR);
+  const yearSpan = Math.max(maxYear - minYear, 1);
+  const x = (year) => margin.left + ((year - minYear) / yearSpan) * innerWidth;
+  const y = (rating) => margin.top + innerHeight - (rating / 10) * innerHeight;
+
+  return (
+    <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+      <h3 style={{ margin: "0 0 14px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Rating vs release year context</h3>
+      <InsightText>All rated sampled movies are shown as faint context; searched movies are highlighted so the single result keeps its place in the larger field.</InsightText>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" style={{ width: "100%", height: "auto", display: "block" }}>
+        {[0, 2, 4, 6, 8, 10].map((tick) => (
+          <g key={tick}>
+            <line x1={margin.left} y1={y(tick)} x2={margin.left + innerWidth} y2={y(tick)} stroke={tick === 0 ? "#343452" : "#20203a"} />
+            <text x={margin.left - 8} y={y(tick) + 4} textAnchor="end" fill="#8b8ba3" fontSize="11">{tick}</text>
+          </g>
+        ))}
+        {[minYear, Math.round((minYear + maxYear) / 2), maxYear].map((year) => (
+          <text key={year} x={x(year)} y={height - 24} textAnchor="middle" fill="#8b8ba3" fontSize="11">{year}</text>
+        ))}
+        {contextMovies.map((movie, index) => {
+          const highlighted = highlightedTitles.has(`${movie.title}|${movie.year}`);
+          return (
+            <circle
+              key={`${movie.title}-${movie.year}-${index}`}
+              cx={x(movie.year)}
+              cy={y(movie.rating)}
+              r={highlighted ? 6 : 2}
+              fill={highlighted ? "#f4c430" : "#8b8ba3"}
+              opacity={highlighted ? 1 : 0.18}
+              stroke={highlighted ? "#fff" : "transparent"}
+              strokeWidth={highlighted ? 1.6 : 0}
+              style={{ cursor: highlighted ? "default" : "pointer" }}
+              onClick={() => onMovieSelect(movie)}
+            >
+              <title>{`${movie.title}, ${movie.year}: ${movie.rating.toFixed(1)} from ${movie.votes.toLocaleString()} votes`}</title>
+            </circle>
+          );
+        })}
+        <text x={margin.left + innerWidth / 2} y={height - 8} textAnchor="middle" fill="#c6c6d8" fontSize="12" fontWeight="600">Release year</text>
+        <text x={16} y={margin.top + innerHeight / 2} textAnchor="middle" fill="#c6c6d8" fontSize="12" fontWeight="600" transform={`rotate(-90 16 ${margin.top + innerHeight / 2})`}>Rating</text>
+      </svg>
+    </div>
+  );
+}
+
+function SearchDecadeContext({ movies }) {
+  const activeDecades = new Set(movies.map((movie) => getMovieDecade(movie.year)).filter(Boolean));
+
+  return (
+    <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+      <h3 style={{ margin: "0 0 14px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Decade placement</h3>
+      <InsightText>{activeDecades.size === 1 ? `Released in the ${[...activeDecades][0]}; other decades are dimmed for context.` : "Multiple matched movies span these highlighted decades."}</InsightText>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+        {DECADES.map((decade) => {
+          const active = activeDecades.has(decade);
+          const decadeMovies = movies.filter((movie) => getMovieDecade(movie.year) === decade);
+          return (
+            <div key={decade} style={{ border: "1px solid", borderColor: active ? "#e85d8e" : "#2a2a4a", borderRadius: 8, padding: 12, opacity: active ? 1 : 0.35, background: active ? "#e85d8e14" : "#17172b" }}>
+              <div style={{ color: active ? "#ff9cc1" : "#9a9ab4", fontSize: 12, fontWeight: 800 }}>{decade}</div>
+              <div style={{ color: "#fff", fontSize: 13, marginTop: 8 }}>{active ? decadeMovies.map((movie) => movie.title).join(", ") : "Not matched"}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RelevantDecadeRatingContext({ movies, allMovies }) {
+  const primaryMovie = movies.find(isRatedMovie) || movies[0];
+  const decade = getMovieDecade(primaryMovie.year);
+  const [lo, hi] = DECADE_RANGE[decade] || [TMDB_MOVIE_START_YEAR, TMDB_MOVIE_END_YEAR];
+  const ratings = allMovies
+    .filter((movie) => isRatedMovie(movie) && movie.year >= lo && movie.year <= hi)
+    .map((movie) => movie.rating);
+  const stats = {
+    count: ratings.length,
+    min: ratings.length ? Math.min(...ratings) : 0,
+    q1: percentile(ratings, 0.25),
+    median: percentile(ratings, 0.5),
+    q3: percentile(ratings, 0.75),
+    max: ratings.length ? Math.max(...ratings) : 0,
+  };
+  const width = 420;
+  const height = 180;
+  const margin = { top: 24, right: 24, bottom: 34, left: 44 };
+  const innerHeight = height - margin.top - margin.bottom;
+  const y = (rating) => margin.top + innerHeight - (rating / 10) * innerHeight;
+  const cx = width / 2;
+  const boxWidth = 70;
+
+  return (
+    <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+      <h3 style={{ margin: "0 0 14px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Relevant decade rating context</h3>
+      <InsightText>{primaryMovie.title} is marked against the {decade} sampled rating distribution.</InsightText>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" style={{ width: "100%", height: "auto", display: "block" }}>
+        {[0, 5, 10].map((tick) => (
+          <g key={tick}>
+            <line x1={margin.left} y1={y(tick)} x2={width - margin.right} y2={y(tick)} stroke={tick === 0 ? "#343452" : "#20203a"} />
+            <text x={margin.left - 8} y={y(tick) + 4} textAnchor="end" fill="#8b8ba3" fontSize="11">{tick}</text>
+          </g>
+        ))}
+        {stats.count > 0 && (
+          <>
+            <line x1={cx} y1={y(stats.min)} x2={cx} y2={y(stats.max)} stroke="#82c7f5" strokeWidth="1.6" />
+            <rect x={cx - boxWidth / 2} y={y(stats.q3)} width={boxWidth} height={Math.max(2, y(stats.q1) - y(stats.q3))} fill="#4a9edd44" stroke="#4a9edd" />
+            <line x1={cx - boxWidth / 2} y1={y(stats.median)} x2={cx + boxWidth / 2} y2={y(stats.median)} stroke="#f4c430" strokeWidth="2" />
+            {movies.filter(isRatedMovie).map((movie, index) => (
+              <circle key={`${movie.title}-${movie.year}`} cx={cx + (index - (movies.length - 1) / 2) * 16} cy={y(movie.rating)} r="5" fill="#e85d8e" stroke="#fff" strokeWidth="1.5">
+                <title>{`${movie.title}: ${movie.rating.toFixed(1)}`}</title>
+              </circle>
+            ))}
+          </>
+        )}
+        <text x={cx} y={height - 10} textAnchor="middle" fill="#c6c6d8" fontSize="12">{decade} rated sample, {stats.count.toLocaleString()} movies</text>
+      </svg>
+    </div>
+  );
+}
+
+function MovieSearchDetailView({ movies, allMovies, onMovieSelect }) {
+  const primaryMovie = movies[0];
+
+  return (
+    <div>
+      <div style={{ marginBottom: 18, color: "#c6c6d8", fontSize: 14 }}>
+        {movies.length === 1
+          ? "Showing a movie detail view because the search has narrowed to one result."
+          : `Showing a detail view for ${movies.length} close matches.`}
+      </div>
+      <div style={{ display: "grid", gap: 18, marginBottom: 28 }}>
+        {movies.map((movie) => (
+          <MovieDetailCard key={`${movie.title}-${movie.year}`} movie={movie} allMovies={allMovies} />
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 20, marginBottom: 28 }}>
+        <PeerList movie={primaryMovie} allMovies={allMovies} />
+        <RelevantDecadeRatingContext movies={movies} allMovies={allMovies} />
+        <SearchDecadeContext movies={movies} />
+      </div>
+      <SearchContextScatter allMovies={allMovies} highlightedMovies={movies.filter(isRatedMovie)} onMovieSelect={onMovieSelect} />
+    </div>
+  );
 }
 
 export default function PopCultureArchive() {
@@ -430,6 +1014,16 @@ export default function PopCultureArchive() {
     });
   }, [data, activeYearStart, activeYearEnd, selectedGenre, searchQuery, mode]);
 
+  const ratedMoviesForCharts = useMemo(() => {
+    if (mode !== "movies") return [];
+    return filtered.filter(isRatedMovie);
+  }, [filtered, mode]);
+
+  const qualifiedTopMovies = useMemo(() => {
+    if (mode !== "movies") return [];
+    return filtered.filter(isQualifiedTopMovie);
+  }, [filtered, mode]);
+
   const chartSeries = useMemo(() => {
     const years = Array.from({ length: activeYearEnd - activeYearStart + 1 }, (_, index) => activeYearStart + index);
 
@@ -466,6 +1060,129 @@ export default function PopCultureArchive() {
     };
   }, [mode, filtered, movieGenreYears, activeYearStart, activeYearEnd, selectedGenre]);
 
+  const movieShareSeries = useMemo(() => {
+    const years = Array.from({ length: activeYearEnd - activeYearStart + 1 }, (_, index) => activeYearStart + index);
+    const scopedRows = movieGenreYears.filter((row) => row.year >= activeYearStart && row.year <= activeYearEnd);
+    const yearTotals = new Map();
+    const genreTotals = new Map();
+
+    scopedRows.forEach((row) => {
+      if (selectedGenre !== "all" && row.genre !== selectedGenre) return;
+      yearTotals.set(row.year, (yearTotals.get(row.year) || 0) + row.count);
+      genreTotals.set(row.genre, (genreTotals.get(row.genre) || 0) + row.count);
+    });
+
+    const genres = [...genreTotals.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, selectedGenre === "all" ? GENRE_SHARE_LIMIT : 1)
+      .map(([genre]) => genre);
+    const rowMap = new Map(scopedRows.map((row) => [`${row.genre}|${row.year}`, row.count]));
+
+    return {
+      years,
+      series: genres.map((genre) => ({
+        name: genre,
+        points: smoothSharePoints(years.map((year) => {
+          const total = yearTotals.get(year) || 0;
+          const count = rowMap.get(`${genre}|${year}`) || 0;
+          return { year, share: total ? (count / total) * 100 : 0 };
+        })),
+      })),
+    };
+  }, [movieGenreYears, activeYearStart, activeYearEnd, selectedGenre]);
+
+  const movieRatingDistributions = useMemo(() => {
+    return DECADES.map((decade) => {
+      const [lo, hi] = DECADE_RANGE[decade];
+      const ratings = ratedMoviesForCharts
+        .filter((movie) => movie.year >= lo && movie.year <= hi)
+        .map((movie) => movie.rating);
+      const sum = ratings.reduce((total, rating) => total + rating, 0);
+      return {
+        decade,
+        count: ratings.length,
+        min: ratings.length ? Math.min(...ratings) : 0,
+        q1: percentile(ratings, 0.25),
+        median: percentile(ratings, 0.5),
+        q3: percentile(ratings, 0.75),
+        max: ratings.length ? Math.max(...ratings) : 0,
+        avg: ratings.length ? sum / ratings.length : 0,
+      };
+    });
+  }, [ratedMoviesForCharts]);
+
+  const genreRatingPoints = useMemo(() => {
+    const aggregates = new Map();
+    ratedMoviesForCharts.forEach((movie) => {
+      const genres = movie.genres.length ? movie.genres : ["Unknown"];
+      genres.forEach((genre) => {
+        const current = aggregates.get(genre) || { genre, count: 0, ratingSum: 0, topMovie: movie };
+        current.count += 1;
+        current.ratingSum += movie.rating;
+        if (movie.rating > current.topMovie.rating || (movie.rating === current.topMovie.rating && movie.votes > current.topMovie.votes)) {
+          current.topMovie = movie;
+        }
+        aggregates.set(genre, current);
+      });
+    });
+
+    return [...aggregates.values()]
+      .map((item) => ({ genre: item.genre, count: item.count, avg: item.ratingSum / item.count, topMovie: item.topMovie }))
+      .sort((a, b) => b.avg - a.avg || b.count - a.count)
+      .slice(0, 12);
+  }, [ratedMoviesForCharts]);
+
+  const decadesAtAGlance = useMemo(() => {
+    return DECADES.map((decade) => {
+      const [lo, hi] = DECADE_RANGE[decade];
+      const moviesInDecade = filtered.filter((movie) => movie.year >= lo && movie.year <= hi);
+      const counts = new Map();
+      moviesInDecade.forEach((movie) => {
+        const genres = movie.genres.length ? movie.genres : ["Unknown"];
+        genres.forEach((genre) => counts.set(genre, (counts.get(genre) || 0) + 1));
+      });
+      const genre = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+      const movie = genre
+        ? moviesInDecade
+          .filter((item) => (item.genres.length ? item.genres : ["Unknown"]).includes(genre))
+          .filter(isQualifiedTopMovie)
+          .sort((a, b) => b.rating - a.rating || b.votes - a.votes)[0]
+        : null;
+      return { decade, genre, movie };
+    });
+  }, [filtered]);
+
+  const ratingTrendPoints = useMemo(() => {
+    const byYear = new Map();
+    ratedMoviesForCharts.forEach((movie) => {
+      const current = byYear.get(movie.year) || { year: movie.year, count: 0, sum: 0 };
+      current.count += 1;
+      current.sum += movie.rating;
+      byYear.set(movie.year, current);
+    });
+
+    return [...byYear.values()]
+      .sort((a, b) => a.year - b.year)
+      .map((item) => ({ year: item.year, avg: item.sum / item.count }));
+  }, [ratedMoviesForCharts]);
+
+  const topRatedPerGenre = useMemo(() => {
+    const byGenre = new Map();
+    qualifiedTopMovies.forEach((movie) => {
+      const genres = movie.genres.length ? movie.genres : ["Unknown"];
+      genres.forEach((genre) => {
+        const current = byGenre.get(genre);
+        if (!current || movie.rating > current.rating || (movie.rating === current.rating && movie.votes > current.votes)) {
+          byGenre.set(genre, movie);
+        }
+      });
+    });
+
+    return [...byGenre.entries()]
+      .map(([genre, movie]) => ({ genre, movie }))
+      .sort((a, b) => b.movie.rating - a.movie.rating || b.movie.votes - a.movie.votes);
+  }, [qualifiedTopMovies]);
+
   const decadeCounts = useMemo(() => {
     return DECADES.map((decade) => {
       const [lo, hi] = DECADE_RANGE[decade];
@@ -496,17 +1213,17 @@ export default function PopCultureArchive() {
 
   const maxDecadeCount = Math.max(...decadeCounts.map((item) => item.count), 1);
   const topItem = mode === "movies"
-    ? [...filtered].sort((a, b) => b.rating - a.rating || b.votes - a.votes)[0]
+    ? [...qualifiedTopMovies].sort((a, b) => b.rating - a.rating || b.votes - a.votes)[0]
     : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak)[0];
   const topResults = useMemo(() => {
     const sorted = mode === "movies"
-      ? [...filtered].sort((a, b) => b.rating - a.rating || b.votes - a.votes)
+      ? [...qualifiedTopMovies].sort((a, b) => b.rating - a.rating || b.votes - a.votes)
       : [...filtered].sort((a, b) => b.weeks - a.weeks || a.peak - b.peak);
     return sorted.slice(0, RESULT_LIMIT);
-  }, [filtered, mode]);
+  }, [filtered, mode, qualifiedTopMovies]);
   const homeYearlyTopMovies = useMemo(() => {
     const topByYear = new Map();
-    movies.forEach((movie) => {
+    movies.filter(isQualifiedTopMovie).forEach((movie) => {
       const current = topByYear.get(movie.year);
       if (!current || movie.rating > current.rating || (movie.rating === current.rating && movie.votes > current.votes)) {
         topByYear.set(movie.year, movie);
@@ -519,12 +1236,40 @@ export default function PopCultureArchive() {
       .sort((a, b) => b.weeks - a.weeks || a.title.localeCompare(b.title))
       .slice(0, RESULT_LIMIT);
   }, [songs]);
-  const avgRating = mode === "movies"
-    ? (filtered.reduce((sum, item) => sum + item.rating, 0) / (filtered.length || 1)).toFixed(1)
-    : null;
   const totalWeeks = mode === "songs"
     ? filtered.reduce((sum, item) => sum + item.weeks, 0)
     : null;
+  const movieShareInsight = useMemo(() => {
+    if (mode !== "movies" || movieShareSeries.series.length === 0) return "";
+    const leader = movieShareSeries.series
+      .map((item) => ({
+        name: item.name,
+        avgShare: item.points.reduce((sum, point) => sum + point.share, 0) / (item.points.length || 1),
+      }))
+      .sort((a, b) => b.avgShare - a.avgShare)[0];
+    return `${leader.name} has the largest smoothed share in this view; click a color band or legend item to isolate a genre.`;
+  }, [mode, movieShareSeries]);
+  const ratingDistributionInsight = useMemo(() => {
+    if (mode !== "movies") return "";
+    const withData = movieRatingDistributions.filter((item) => item.count > 0);
+    if (withData.length === 0) return "";
+    const highestMedian = [...withData].sort((a, b) => b.median - a.median)[0];
+    const widestSpread = [...withData].sort((a, b) => (b.q3 - b.q1) - (a.q3 - a.q1))[0];
+    return `${highestMedian.decade} has the highest median rating, while ${widestSpread.decade} shows the widest middle spread. Click a decade to filter.`;
+  }, [mode, movieRatingDistributions]);
+  const genreRatingInsight = useMemo(() => {
+    if (mode !== "movies" || genreRatingPoints.length === 0) return "";
+    const top = genreRatingPoints[0];
+    return `${top.genre} leads this sampled set by average rating; bar length is rating, while the right label shows sample size.`;
+  }, [mode, genreRatingPoints]);
+  const releaseYearInsight = useMemo(() => {
+    if (mode !== "movies") return "";
+    const excluded = filtered.length - ratedMoviesForCharts.length;
+    return excluded > 0
+      ? `${excluded.toLocaleString()} unrated or zero-rated sampled movies are hidden here so missing ratings do not flatten the plot. Click a point to isolate that title.`
+      : "Every sampled movie in this view has a usable rating; click a point to isolate that title.";
+  }, [filtered.length, mode, ratedMoviesForCharts.length]);
+  const movieDetailMode = mode === "movies" && searchQuery.trim() && filtered.length > 0 && filtered.length <= 5;
 
   return (
     <div style={{
@@ -532,7 +1277,7 @@ export default function PopCultureArchive() {
       background: "#0d0d1a",
       color: "#e0e0e0",
       fontFamily: "'Segoe UI', system-ui, sans-serif",
-      padding: "24px",
+      padding: "clamp(16px, 4vw, 24px)",
     }}>
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
@@ -635,7 +1380,7 @@ export default function PopCultureArchive() {
           {allGenres.map((genre) => <option key={genre} value={genre}>{genre}</option>)}
         </select>
         
-        <div style={{ display: "flex", alignItems: "center", gap: 12, background: "#17172b", border: "1px solid #2a2a4a", borderRadius: 8, padding: "8px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#17172b", border: "1px solid #2a2a4a", borderRadius: 8, padding: "8px 14px", boxSizing: "border-box", maxWidth: "100%" }}>
           <style>{`
             .slider-input {
               pointer-events: none;
@@ -714,73 +1459,151 @@ export default function PopCultureArchive() {
             ? `${filtered.length.toLocaleString()} sampled records loaded`
             : `of ${data.length.toLocaleString()} loaded`}
         />
-        {mode === "movies" && <StatCard label="Avg rating" value={`★ ${avgRating}`} />}
+        {mode === "movies" && ratingTrendPoints.length > 1 && <RatingSparklineCard points={ratingTrendPoints} />}
         {mode === "songs" && <StatCard label="Total chart weeks" value={totalWeeks.toLocaleString()} />}
         {topItem && (
-          <StatCard
-            label={mode === "movies" ? "Top rated" : "Longest charting"}
-            value={topItem.title.length > 20 ? `${topItem.title.slice(0, 20)}...` : topItem.title}
-            sub={mode === "movies" ? `${topItem.rating.toFixed(1)} rating` : `${topItem.weeks} weeks`}
-          />
+          mode === "movies"
+            ? <TopRatedGenresCard items={topRatedPerGenre} />
+            : (
+              <StatCard
+                label="Longest charting"
+                value={topItem.title.length > 20 ? `${topItem.title.slice(0, 20)}...` : topItem.title}
+                sub={`${topItem.weeks} weeks`}
+              />
+            )
         )}
         <StatCard label={mode === "movies" ? "Genres" : "Source"} value={mode === "movies" ? allGenres.length : "Billboard"} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.45fr) minmax(280px, 0.85fr)", gap: 20, marginBottom: 28 }}>
+      {movieDetailMode ? (
+        <MovieSearchDetailView
+          movies={filtered}
+          allMovies={movies}
+          onMovieSelect={(movie) => setSearchQuery(movie.title)}
+        />
+      ) : (
+        <>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 20, marginBottom: 28 }}>
         <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>
-            {mode === "movies" ? "Top 10 genre trend" : "Hot 100 songs by year"}
+            {mode === "movies" ? "Genre share over time" : "Hot 100 songs by year"}
             <span style={{ color: "#82c7f5", marginLeft: 8 }}>
               {activeYearStart === activeYearEnd ? activeYearStart : `${activeYearStart}-${activeYearEnd}`}
             </span>
           </h3>
-          {chartSeries.series.length === 0
-            ? <div style={{ color: "#666680", fontSize: 13 }}>No data for selection</div>
-            : (
+          {mode === "movies"
+            ? (
+              movieShareSeries.series.length === 0
+                ? <div style={{ color: "#666680", fontSize: 13 }}>No data for selection</div>
+                : (
+                  <>
+                    <InsightText>{movieShareInsight}</InsightText>
+                    <GenreShareAreaChart
+                      series={movieShareSeries.series}
+                      years={movieShareSeries.years}
+                      activeGenre={selectedGenre}
+                      onGenreSelect={setSelectedGenre}
+                    />
+                  </>
+                )
+            )
+            : chartSeries.series.length === 0
+              ? <div style={{ color: "#666680", fontSize: 13 }}>No data for selection</div>
+              : (
               <GenreLineChart
                 series={chartSeries.series}
                 years={chartSeries.years}
                 xLabel="Year"
-                yLabel={mode === "movies" ? "Movies released" : "Songs first charted"}
+                yLabel="Songs first charted"
               />
             )}
         </div>
 
         <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20, display: "flex", flexDirection: "column" }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>
-            By decade
+            {mode === "movies" ? "Rating distribution by decade" : "By decade"}
           </h3>
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(8, minmax(0, 1fr))",
-            gap: 8,
-            flex: "1 1 auto",
-            minHeight: 250,
-            alignItems: "stretch",
-            overflow: "hidden",
-          }}>
-            {decadeCounts.map(({ decade, count }) => (
-              <TimelineBar key={decade} decade={decade} count={count} max={maxDecadeCount} mode={mode} />
-            ))}
-          </div>
+          {mode === "movies"
+            ? (
+              <>
+                <InsightText>{ratingDistributionInsight}</InsightText>
+                <RatingDistributionChart
+                  distributions={movieRatingDistributions}
+                  selectedDecade={selectedDecade}
+                  onDecadeSelect={setSelectedDecade}
+                />
+              </>
+            )
+            : (
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(8, minmax(0, 1fr))",
+                gap: 8,
+                flex: "1 1 auto",
+                minHeight: 250,
+                alignItems: "stretch",
+                overflow: "hidden",
+              }}>
+                {decadeCounts.map(({ decade, count }) => (
+                  <TimelineBar key={decade} decade={decade} count={count} max={maxDecadeCount} mode={mode} />
+                ))}
+              </div>
+            )}
         </div>
       </div>
+
+      {mode === "movies" && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 20, marginBottom: 28 }}>
+            <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+              <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Genre average rating</h3>
+              {genreRatingPoints.length === 0
+                ? <div style={{ color: "#666680", fontSize: 13 }}>No data for selection</div>
+                : (
+                  <>
+                    <InsightText>{genreRatingInsight}</InsightText>
+                    <GenreRatingBarChart points={genreRatingPoints} activeGenre={selectedGenre} onGenreSelect={setSelectedGenre} />
+                  </>
+                )}
+            </div>
+            <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
+              <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Decades at a glance</h3>
+              <DecadesAtAGlance items={decadesAtAGlance} />
+            </div>
+          </div>
+
+          <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20, marginBottom: 28 }}>
+            <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>Rating vs release year</h3>
+            {ratedMoviesForCharts.length === 0
+              ? <div style={{ color: "#666680", fontSize: 13 }}>No data for selection</div>
+              : (
+                <>
+                  <InsightText>{releaseYearInsight}</InsightText>
+                  <RatingYearScatterPlot movies={ratedMoviesForCharts} onMovieSelect={(movie) => setSearchQuery(movie.title)} />
+                </>
+              )}
+          </div>
+        </>
+      )}
 
       <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20 }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>
           {mode === "movies" ? "Top 10 movies" : "Top 10 songs"}
         </h3>
-        {filtered.length === 0
+        {topResults.length === 0
           ? <div style={{ color: "#666680", fontSize: 13 }}>No results match your filters.</div>
           : topResults.map((item) => (
             <SearchResult key={`${mode}-${item.title}-${item.artist || item.year}`} item={item} mode={mode} />
           ))}
-        {filtered.length > RESULT_LIMIT && (
+        {(mode === "movies" ? qualifiedTopMovies.length : filtered.length) > RESULT_LIMIT && (
           <div style={{ paddingTop: 12, fontSize: 12, color: "#666680" }}>
-            Showing top {RESULT_LIMIT} of {filtered.length.toLocaleString()} results
+            Showing top {RESULT_LIMIT} of {(mode === "movies" ? qualifiedTopMovies.length : filtered.length).toLocaleString()} results
+            {mode === "movies" ? ` with ${MIN_TOP_MOVIE_VOTES}+ votes` : ""}
           </div>
         )}
       </div>
+        </>
+      )}
         </>
       )}
     </div>
