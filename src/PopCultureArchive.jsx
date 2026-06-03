@@ -408,14 +408,18 @@ export default function PopCultureArchive() {
       if (mode === "movies" && selectedGenre !== "all" && !(item.genres || [item.genre]).includes(selectedGenre)) return false;
       if (mode === "songs" && selectedGenre !== "all" && item.genre !== selectedGenre) return false;
       if (q) {
-        const searchable = [
-          item.title,
-          item.artist,
-          item.director,
-          item.genre,
-          ...(item.genres || []),
-        ].filter(Boolean).join(" ").toLowerCase();
-        if (!searchable.includes(q)) return false;
+        if (mode === "songs") {
+          if (item.title.toLowerCase() !== q) return false;
+        } else {
+          const searchable = [
+            item.title,
+            item.artist,
+            item.director,
+            item.genre,
+            ...(item.genres || []),
+          ].filter(Boolean).join(" ").toLowerCase();
+          if (!searchable.includes(q)) return false;
+        }
       }
       return true;
     });
