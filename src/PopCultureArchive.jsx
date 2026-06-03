@@ -208,6 +208,64 @@ function InsightText({ children }) {
   );
 }
 
+function SongPerformanceChart({ songs }) {
+  const width = 720;
+  const height = 300;
+  const margin = { top: 20, right: 20, bottom: 40, left: 40 };
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+
+  // Debugging data
+  console.log("Chart Songs Data:", songs.map(s => ({ title: s.title, years: s.years, yearlyWeeks: s.yearlyWeeks })));
+
+  // Dynamically calculate the range based on the top results provided
+  const allYears = [...new Set(songs.flatMap(s => s.years || [s.year]))].sort((a, b) => a - b);
+  const minYear = allYears[0] || 1980;
+  const maxYear = allYears[allYears.length - 1] || 2026;
+  const yearSpan = Math.max(maxYear - minYear, 1);
+  
+  // FIX: Calculate maxWeeks across ALL yearly data points
+  const allWeeklyValues = songs.flatMap(s => Object.values(s.yearlyWeeks || {}));
+  const maxWeeks = Math.max(...allWeeklyValues, 1);
+
+  const x = (year) => margin.left + ((year - minYear) / yearSpan) * innerWidth;
+  const y = (weeks) => margin.top + innerHeight - (weeks / maxWeeks) * innerHeight;
+
+  // Dynamic ticks
+  const xTicks = [...new Set([minYear, Math.round((minYear + maxYear) / 2), maxYear])];
+  const yTicks = [0, Math.round(maxWeeks / 2), maxWeeks];
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      {/* X Axis */}
+      <line x1={margin.left} y1={margin.top + innerHeight} x2={margin.left + innerWidth} y2={margin.top + innerHeight} stroke="#343452" />
+      {xTicks.map(year => (
+        <text key={year} x={x(year)} y={height - 5} textAnchor="middle" fill="#8b8ba3" fontSize="9">{year}</text>
+      ))}
+
+      {/* Y Axis */}
+      <line x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top + innerHeight} stroke="#343452" />
+      {yTicks.map(weeks => (
+        <text key={weeks} x={margin.left - 5} y={y(weeks) + 3} textAnchor="end" fill="#8b8ba3" fontSize="9">{weeks}</text>
+      ))}
+      <text x={10} y={margin.top + innerHeight / 2} textAnchor="middle" fill="#8b8ba3" fontSize="9" transform={`rotate(-90 10 ${margin.top + innerHeight / 2})`}>Weeks</text>
+      <text x={width/2} y={height - 25} textAnchor="middle" fill="#8b8ba3" fontSize="9">Year</text>
+
+      {/* Lines */}
+      {songs.map((song, index) => {
+        const years = (song.years || []).sort((a,b) => a-b);
+        const yearlyWeeks = song.yearlyWeeks || {};
+        // FIX: Ensure we use the yearly-specific value
+        const points = years.map(year => `${x(year)},${y(yearlyWeeks[year] || 0)}`).join(" ");
+        const color = COLORS[index % COLORS.length];
+        return (
+          <polyline key={song.title} points={points} fill="none" stroke={color} strokeWidth="2" />
+        );
+      })}
+    </svg>
+  );
+}
+
 // FROM YOUR CODE: StatCard with fontSize prop (friend's version)
 function StatCard({ label, value, sub, fontSize = 26 }) {
   return (
@@ -598,7 +656,7 @@ function SearchResult({ item, mode }) {
           {item.years.map(y => (
             <div key={y} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{y}</div>
-              <div style={{ fontSize: 15, color: "#e85d8e", whiteSpace: "nowrap" }}>{item.weeks} weeks</div>
+              <div style={{ fontSize: 15, color: "#e85d8e", whiteSpace: "nowrap" }}>{item.yearlyWeeks[y]} weeks</div>
             </div>
           ))}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -969,13 +1027,14 @@ export default function PopCultureArchive() {
       result.forEach(song => {
         const key = `${song.title}-${song.artist}`;
         if (!aggregated.has(key)) {
-          aggregated.set(key, { ...song, years: new Set() });
+          aggregated.set(key, { ...song, yearlyWeeks: new Map() });
         }
-        aggregated.get(key).years.add(song.year);
+        aggregated.get(key).yearlyWeeks.set(song.year, song.weeks);
       });
       result = [...aggregated.values()].map(s => ({
         ...s,
-        years: s.years ? [...s.years].sort((a, b) => a - b) : []
+        years: [...s.yearlyWeeks.keys()].sort((a, b) => a - b),
+        yearlyWeeks: Object.fromEntries(s.yearlyWeeks) // Convert to plain object for easier access
       }));
     }
     return result;
@@ -1394,6 +1453,19 @@ export default function PopCultureArchive() {
                     </label>
                   )}
                 </div>
+                {mode === "songs" && topResults.length > 0 && (
+                  <div style={{ marginBottom: 20 }}>
+                    <SongPerformanceChart songs={topResults} />
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
+                      {topResults.map((song, index) => (
+                        <div key={song.title} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#c6c6d8" }}>
+                          <span style={{ width: 10, height: 10, borderRadius: 2, background: COLORS[index % COLORS.length] }} />
+                          {song.title}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {filtered.length === 0
                   ? <div style={{ color: "#666680", fontSize: 13 }}>No results match your filters.</div>
                   : topResults.map((item) => <SearchResult key={`${mode}-${item.title}-${item.artist || item.year}`} item={item} mode={mode} />)}
