@@ -208,94 +208,52 @@ function InsightText({ children }) {
   );
 }
 
-function SongPerformanceChart({ songs }) {
-  const [hiddenSongs, setHiddenSongs] = useState(new Set());
+function SongPerformanceChart({ songs, yearStart, yearEnd }) {
   const [tooltip, setTooltip] = useState(null);
   
-  const width = 720;
-  const height = 200;
-  const margin = { top: 25, right: 20, bottom: 30, left: 35 };
+  const topSongs = useMemo(() => {
+    return songs
+      .map(s => ({ 
+        ...s, 
+        weeksInYear: Object.entries(s.yearlyWeeks || {}).filter(([y]) => Number(y) >= yearStart && Number(y) <= yearEnd).reduce((acc, [, w]) => acc + w, 0) 
+      }))
+      .filter(s => s.weeksInYear > 0)
+      .sort((a, b) => b.weeksInYear - a.weeksInYear)
+      .slice(0, 10);
+  }, [songs, yearStart, yearEnd]);
+
+  const width = 300;
+  const rowHeight = 18;
+  const height = Math.max(topSongs.length * rowHeight + 20, 30);
+  const margin = { top: 5, right: 30, bottom: 10, left: 110 };
   const innerWidth = width - margin.left - margin.right;
-  const innerHeight = height - margin.top - margin.bottom;
+  const maxWeeks = Math.max(...topSongs.map(s => s.weeksInYear), 1);
 
-  const allYears = [...new Set(songs.flatMap(s => s.years || [s.year]))].sort((a, b) => a - b);
-  const minYear = allYears[0] || 1980;
-  const maxYear = allYears[allYears.length - 1] || 2026;
-  const yearSpan = Math.max(maxYear - minYear, 1);
-  const allWeeklyValues = songs.flatMap(s => Object.values(s.yearlyWeeks || {}));
-  const maxWeeks = Math.max(...allWeeklyValues, 1);
-
-  const x = (year) => margin.left + ((year - minYear) / yearSpan) * innerWidth;
-  const y = (weeks) => margin.top + innerHeight - (weeks / maxWeeks) * innerHeight;
-
-  // Dynamic ticks: Add more ticks by creating an array of years
-  const xTicks = [];
-  for (let y = minYear; y <= maxYear; y += Math.max(1, Math.floor(yearSpan / 8))) {
-    xTicks.push(y);
-  }
-  const yTicks = [0, Math.round(maxWeeks / 2), maxWeeks];
-
-  const toggleSong = (title) => {
-    const next = new Set(hiddenSongs);
-    if (next.has(title)) next.delete(title);
-    else next.add(title);
-    setHiddenSongs(next);
-  };
+  const x = (weeks) => (weeks / maxWeeks) * innerWidth;
+  const y = (index) => margin.top + index * rowHeight;
 
   return (
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "relative", maxWidth: 480  }}>
       <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
-        {/* X Axis */}
-        <line x1={margin.left} y1={margin.top + innerHeight} x2={margin.left + innerWidth} y2={margin.top + innerHeight} stroke="#343452" />
-        {xTicks.map(year => (
-          <text key={year} x={x(year)} y={height - 5} textAnchor="middle" fill="#8b8ba3" fontSize="9">{year}</text>
+        {topSongs.map((song, index) => (
+          <g key={song.title}>
+            <text x={margin.left - 3} y={y(index) + 9} textAnchor="end" fill="#c6c6d8" fontSize="8">
+              {song.title}
+            </text>
+            <rect x={margin.left} y={y(index) + 3} width={x(song.weeksInYear)} height={rowHeight - 6} fill={COLORS[index % COLORS.length]} 
+                onMouseEnter={(e) => setTooltip({ x: e.clientX, y: e.clientY, title: song.title, weeks: song.weeksInYear })}
+                onMouseLeave={() => setTooltip(null)} />
+            <text x={margin.left + x(song.weeksInYear) + 2} y={y(index) + 9} fill="#fff" fontSize="7">
+              {song.weeksInYear}
+            </text>
+          </g>
         ))}
-
-        {/* Y Axis */}
-        <line x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top + innerHeight} stroke="#343452" />
-        {yTicks.map(weeks => (
-          <text key={weeks} x={margin.left - 5} y={y(weeks) + 3} textAnchor="end" fill="#8b8ba3" fontSize="9">{weeks}</text>
-        ))}
-        <text x={10} y={margin.top + innerHeight / 2} textAnchor="middle" fill="#8b8ba3" fontSize="9" transform={`rotate(-90 10 ${margin.top + innerHeight / 2})`}>Weeks</text>
-        <text x={width/2} y={height - 18} textAnchor="middle" fill="#8b8ba3" fontSize="9">Year</text>
-
-        {/* Lines & Markers */}
-          {songs.map((song, index) => {
-          const isHidden = hiddenSongs.has(song.title);
-          const color = isHidden ? "#343452" : COLORS[index % COLORS.length];
-          const years = (song.years || []).sort((a,b) => a-b);
-          const yearlyWeeks = song.yearlyWeeks || {};
-          const points = years.map(year => `${x(year)},${y(yearlyWeeks[year] || 0)}`).join(" ");
-          
-          return (
-            <g key={song.title} style={{ opacity: isHidden ? 0.3 : 1 }}
-              onMouseEnter={(e) => !isHidden && setTooltip({ x: e.clientX, y: e.clientY, title: song.title, artist: song.artist, genre: song.genre, color })}
-              onMouseMove={(e) => !isHidden && setTooltip({ x: e.clientX, y: e.clientY, title: song.title, artist: song.artist, genre: song.genre, color })}
-              onMouseLeave={() => setTooltip(null)}
-            >
-              <polyline points={points} fill="none" stroke={color} strokeWidth={isHidden ? 1.5 : 3} />
-              {years.map(year => (
-                <circle key={`${song.title}-${year}`} cx={x(year)} cy={y(yearlyWeeks[year] || 0)} r="3" fill={color} />
-              ))}
-            </g>
-          );
-        })}
       </svg>
       {tooltip && (
-        <div style={{ position: "fixed", left: tooltip.x + 15, top: tooltip.y + 15, background: "#17172b", padding: "6px 10px", borderRadius: 4, fontSize: 11, pointerEvents: "none", border: "1px solid #2a2a4a", zIndex: 100 }}>
-          <div style={{ fontWeight: 700, color: tooltip.color }}>{tooltip.title}</div>
-          <div style={{ color: "#9a9ab4" }}>{tooltip.artist}</div>
-          <div>Genre: {tooltip.genre}</div>
+        <div style={{ position: "fixed", left: tooltip.x + 10, top: tooltip.y + 10, background: "#17172b", padding: "5px", color: "#fff", fontSize: 12, border: "1px solid #2a2a4a", pointerEvents: "none" }}>
+          {tooltip.title}: {tooltip.weeks} weeks
         </div>
       )}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
-        {songs.map((song, index) => (
-          <button key={song.title} onClick={() => toggleSong(song.title)} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: hiddenSongs.has(song.title) ? "#666" : "#c6c6d8", background: "none", border: "none", cursor: "pointer" }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: hiddenSongs.has(song.title) ? "#343452" : COLORS[index % COLORS.length] }} />
-            {song.title}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -1070,6 +1028,10 @@ export default function PopCultureArchive() {
         }
         aggregated.get(key).yearlyWeeks.set(song.year, song.weeks);
       });
+      console.log("DEBUG: Aggregated map size:", aggregated.size);
+      if (aggregated.size > 0) {
+        console.log("DEBUG: Example aggregated song:", [...aggregated.values()][0]);
+      }
       result = [...aggregated.values()].map(s => ({
         ...s,
         years: [...s.yearlyWeeks.keys()].sort((a, b) => a - b),
@@ -1249,9 +1211,12 @@ export default function PopCultureArchive() {
   const topResults = useMemo(() => {
     const sorted = mode === "movies"
       ? [...qualifiedTopMovies].sort((a, b) => b.rating - a.rating || b.votes - a.votes)
-      : [...filtered].sort((a, b) => (b.historicalStats?.totalWeeks || b.weeks) - (a.historicalStats?.totalWeeks || a.weeks));
+      : [...filtered].sort((a, b) => { 
+          const sumWeeks = (s) => Object.entries(s.yearlyWeeks || {}).filter(([y]) => Number(y) >= activeYearStart && Number(y) <= activeYearEnd).reduce((acc, [, w]) => acc + w, 0); 
+          return sumWeeks(b) - sumWeeks(a); 
+        });
     return sorted.slice(0, displayLimit);
-  }, [filtered, mode, qualifiedTopMovies, displayLimit]);
+  }, [filtered, mode, qualifiedTopMovies, displayLimit, activeYearStart, activeYearEnd]);
 
   const homeYearlyTopMovies = useMemo(() => {
     const topByYear = new Map();
@@ -1500,9 +1465,9 @@ export default function PopCultureArchive() {
                     </label>
                   )}
                 </div>
-                {mode === "songs" && topResults.length > 0 && (
+                {mode === "songs" && filtered.length > 0 && (
                   <div style={{ marginBottom: 20 }}>
-                    <SongPerformanceChart songs={topResults} />
+                    <SongPerformanceChart songs={filtered} yearStart={activeYearStart} yearEnd={activeYearEnd} />
                   </div>
                 )}
                 {filtered.length === 0
