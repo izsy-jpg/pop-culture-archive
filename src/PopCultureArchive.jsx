@@ -304,61 +304,96 @@ function TimelineBar({ decade, count, max, mode }) {
   );
 }
 
-function GenreLineChart({ series, years, xLabel, yLabel }) {
+function GenreStackedAreaChart({ series, years, xLabel }) {
+  const [activeGenres, setActiveGenres] = useState(new Set());
+  const [hoveredGenre, setHoveredGenre] = useState(null);
+  const [tooltip, setTooltip] = useState(null);
   const width = 720;
   const height = 320;
-  const margin = { top: 18, right: 28, bottom: 66, left: 78 };
+  const margin = { top: 18, right: 28, bottom: 56, left: 70 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
-  const rawMaxCount = Math.max(...series.flatMap((item) => item.points.map((point) => point.count)), 1);
-  const maxCount = niceMax(rawMaxCount);
   const minYear = Math.min(...years);
   const maxYear = Math.max(...years);
   const yearSpan = Math.max(maxYear - minYear, 1);
-  const yTicks = Array.from({ length: 6 }, (_, index) => (maxCount / 5) * index);
-  const xTicks = [...new Set([minYear, Math.round((minYear + maxYear) / 2), maxYear])];
+  const rawMax = Math.max(...years.map(y => series.reduce((sum, s) => sum + (s.points.find(p => p.year === y)?.count || 0), 0)), 1);
   const x = (year) => margin.left + ((year - minYear) / yearSpan) * innerWidth;
-  const y = (count) => margin.top + innerHeight - (count / maxCount) * innerHeight;
+  const y = (count) => margin.top + innerHeight - (count / rawMax) * innerHeight;
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(pct => Math.round(pct * rawMax));
+  const cumulative = new Map(years.map((year) => [year, 0]));
+
+  const toggleGenre = (genre) => {
+    const next = new Set(activeGenres);
+    if (next.has(genre)) next.delete(genre);
+    else next.add(genre);
+    setActiveGenres(next);
+  };
+
+  const isDimmed = (genre) => {
+    if (hoveredGenre) return hoveredGenre !== genre;
+    return activeGenres.size > 0 && !activeGenres.has(genre);
+  };
+
+  // Calculate ticks: show a tick every ~5 years for better coverage
+  const tickInterval = Math.max(1, Math.floor(yearSpan / 10));
+  const xTicks = [];
+  for (let y = minYear; y <= maxYear; y += tickInterval) {
+    xTicks.push(y);
+  }
+
   return (
     <div>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" style={{ width: "100%", height: "auto", display: "block" }}>
-        <line x1={margin.left} y1={margin.top} x2={margin.left} y2={margin.top + innerHeight} stroke="#343452" />
-        <line x1={margin.left} y1={margin.top + innerHeight} x2={margin.left + innerWidth} y2={margin.top + innerHeight} stroke="#343452" />
-        {yTicks.map((tickValue) => {
-          const tickY = y(tickValue);
+        {yTicks.map((tick) => (
+          <g key={tick}>
+            <line x1={margin.left} y1={y(tick)} x2={margin.left + innerWidth} y2={y(tick)} stroke="#20203a" />
+            <text x={margin.left - 10} y={y(tick) + 4} textAnchor="end" fill="#8b8ba3" fontSize="11">{tick.toLocaleString()}</text>
+          </g>
+        ))}
+        {series.map((item, index) => {
+          const dimmed = isDimmed(item.name);
+          const upper = item.points.map((point) => {
+            const base = cumulative.get(point.year) || 0;
+            const top = base + point.count;
+            cumulative.set(point.year, top);
+            return `${x(point.year)},${y(top)}`;
+          });
+          const lower = [...item.points].reverse().map((point) => {
+            const top = cumulative.get(point.year) || 0;
+            const base = top - point.count;
+            return `${x(point.year)},${y(base)}`;
+          });
           return (
-            <g key={tickValue}>
-              <line x1={margin.left} y1={tickY} x2={margin.left + innerWidth} y2={tickY} stroke="#20203a" />
-              <text x={margin.left - 10} y={tickY + 4} textAnchor="end" fill="#8b8ba3" fontSize="11">{Math.round(tickValue).toLocaleString()}</text>
-            </g>
+            <polygon key={item.name} points={[...upper, ...lower].join(" ")} 
+              fill={COLORS[index % COLORS.length]}
+              opacity={dimmed ? 0.15 : 0.8}
+              style={{ transition: "opacity 0.2s, fill 0.2s", cursor: "pointer" }}
+              onMouseEnter={(e) => { setHoveredGenre(item.name); setTooltip({ x: e.clientX, y: e.clientY, name: item.name }); }}
+              onMouseLeave={() => { setHoveredGenre(null); setTooltip(null); }}
+              onClick={() => toggleGenre(item.name)} />
           );
         })}
         {xTicks.map((year) => (
-          <text key={year} x={x(year)} y={height - 36} textAnchor="middle" fill="#8b8ba3" fontSize="11">{year}</text>
+          <text key={year} x={x(year)} y={height - 26} textAnchor="middle" fill="#8b8ba3" fontSize="10">{year}</text>
         ))}
-        <text x={margin.left + innerWidth / 2} y={height - 12} textAnchor="middle" fill="#c6c6d8" fontSize="12" fontWeight="600">{xLabel}</text>
-        <text x={18} y={margin.top + innerHeight / 2} textAnchor="middle" fill="#c6c6d8" fontSize="12" fontWeight="600" transform={`rotate(-90 18 ${margin.top + innerHeight / 2})`}>{yLabel}</text>
-        {series.map((item, index) => {
-          const points = item.points.map((point) => `${x(point.year)},${y(point.count)}`).join(" ");
-          const color = COLORS[index % COLORS.length];
-          return (
-            <g key={item.name}>
-              <polyline points={points} fill="none" stroke={color} strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
-              {item.points.map((point) => (
-                <circle key={`${item.name}-${point.year}`} cx={x(point.year)} cy={y(point.count)} r="2.4" fill={color}>
-                  <title>{`${item.name}, ${point.year}: ${point.count.toLocaleString()}`}</title>
-                </circle>
-              ))}
-            </g>
-          );
-        })}
       </svg>
+      {tooltip && (
+        <div style={{ position: "fixed", left: tooltip.x + 10, top: tooltip.y + 10, background: "#17172b", padding: "5px", color: "#fff", fontSize: 12, border: "1px solid #2a2a4a", pointerEvents: "none", zIndex: 10 }}>
+          {tooltip.name}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
         {series.map((item, index) => (
-          <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#c6c6d8" }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: COLORS[index % COLORS.length] }} />
+          <button key={item.name} 
+            onClick={() => toggleGenre(item.name)}
+            onMouseEnter={() => setHoveredGenre(item.name)}
+            onMouseLeave={() => setHoveredGenre(null)}
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, 
+              color: isDimmed(item.name) ? "#666" : "#c6c6d8", 
+              background: "none", border: "none", cursor: "pointer", transition: "color 0.2s" }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: isDimmed(item.name) ? "#343452" : COLORS[index % COLORS.length] }} />
             {item.name}
-          </div>
+          </button>
         ))}
       </div>
     </div>
@@ -1056,12 +1091,40 @@ export default function PopCultureArchive() {
     const years = Array.from({ length: activeYearEnd - activeYearStart + 1 }, (_, index) => activeYearStart + index);
     if (mode === "songs") {
       const counts = new Map();
-      filtered.forEach((song) => counts.set(song.year, (counts.get(song.year) || 0) + 1));
-      return {
-        years,
-        series: [{ name: selectedGenre === "all" ? "Billboard Hot 100" : selectedGenre, points: years.map((year) => ({ year, count: counts.get(year) || 0 })) }],
-      };
+      const genreTotals = new Map();
+      
+      filtered.forEach((song) => {
+        const genres = (song.genre || "Unknown").split(" / ").map(g => g.trim());
+        genres.forEach(genre => {
+          const key = `${genre}|${song.year}`;
+          counts.set(key, (counts.get(key) || 0) + 1);
+          genreTotals.set(genre, (genreTotals.get(genre) || 0) + 1);
+        });
+      });
+
+      const totalSongs = filtered.length;
+      const majorGenres = [...genreTotals.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([genre]) => genre);
+
+      const series = majorGenres.map(genre => ({
+        name: genre,
+        points: years.map(year => ({ year, count: counts.get(`${genre}|${year}`) || 0 }))
+      }));
+
+      const otherPoints = years.map(year => {
+        let count = 0;
+        [...genreTotals.keys()].filter(g => !majorGenres.includes(g)).forEach(genre => {
+          count += counts.get(`${genre}|${year}`) || 0;
+        });
+        return { year, count };
+      });
+      series.push({ name: "Other", points: otherPoints });
+
+      return { years, series };
     }
+    // ... (rest of the movie logic remains unchanged)
     const scopedRows = movieGenreYears.filter((row) => row.year >= activeYearStart && row.year <= activeYearEnd);
     const totals = new Map();
     scopedRows.forEach((row) => {
@@ -1421,7 +1484,7 @@ export default function PopCultureArchive() {
                       : <><InsightText>{movieShareInsight}</InsightText><GenreShareAreaChart series={movieShareSeries.series} years={movieShareSeries.years} activeGenre={selectedGenre} onGenreSelect={setSelectedGenre} /></>
                     : chartSeries.series.length === 0
                       ? <div style={{ color: "#666680", fontSize: 13 }}>No data for selection</div>
-                      : <GenreLineChart series={chartSeries.series} years={chartSeries.years} xLabel="Year" yLabel="Songs first charted" />}
+                      : <GenreStackedAreaChart series={chartSeries.series} years={chartSeries.years} xLabel="Year" />}
                 </div>
                 <div style={{ background: "#111126", border: "1px solid #2a2a4a", borderRadius: 8, padding: 20, display: "flex", flexDirection: "column" }}>
                   <h3 style={{ margin: "0 0 16px", fontSize: 13, color: "#9a9ab4", textTransform: "uppercase" }}>{mode === "movies" ? "Rating distribution by decade" : "By decade"}</h3>
