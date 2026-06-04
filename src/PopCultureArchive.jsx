@@ -604,20 +604,24 @@ function GenreShareAreaChart({ series, years, activeGenre, onGenreSelect }) {
             const base = Math.max(0, top - point.share);
             return `${x(point.year)},${y(base)}`;
           });
-          const isDimmed = hoveredGenre && hoveredGenre !== item.name;
           const isSelected = activeGenre === item.name;
+          const isDimmed = hoveredGenre
+            ? hoveredGenre !== item.name
+            : activeGenre && activeGenre !== "all"
+              ? !isSelected
+              : false;
           return (
             <polygon
               key={item.name}
               points={[...upper, ...lower].join(" ")}
               fill={COLORS[index % COLORS.length]}
-              opacity={isDimmed ? 0.28 : 0.82}
+              opacity={isDimmed ? 0.18 : 0.82}
               stroke={isSelected ? "#fff" : "#0d0d1a"}
               strokeWidth={isSelected ? "2.4" : "1"}
               style={{ cursor: "pointer", transition: "opacity 0.18s ease" }}
               onMouseEnter={() => setHoveredGenre(item.name)}
               onMouseLeave={() => setHoveredGenre("")}
-              onClick={() => {}}
+              onClick={() => onGenreSelect(activeGenre === item.name ? "all" : item.name)}
             >
               <title>{`${item.name}: click to ${activeGenre === item.name ? "clear" : "filter"}`}</title>
             </polygon>
@@ -628,7 +632,7 @@ function GenreShareAreaChart({ series, years, activeGenre, onGenreSelect }) {
         {series.map((item, index) => (
           <button
             key={item.name}
-            onClick={() => {}}
+            onClick={() => onGenreSelect(activeGenre === item.name ? "all" : item.name)}
             onMouseEnter={() => setHoveredGenre(item.name)}
             onMouseLeave={() => setHoveredGenre("")}
             style={{
@@ -1425,15 +1429,18 @@ export default function PopCultureArchive() {
 
   const movieShareSeries = useMemo(() => {
     const years = Array.from({ length: activeYearEnd - activeYearStart + 1 }, (_, index) => activeYearStart + index);
+    // Always use ALL genres for the area chart — never filter by selectedGenre here
     const scopedRows = movieGenreYears.filter((row) => row.year >= activeYearStart && row.year <= activeYearEnd);
     const yearTotals = new Map();
     const genreTotals = new Map();
     scopedRows.forEach((row) => {
-      if (selectedGenre !== "all" && row.genre !== selectedGenre) return;
       yearTotals.set(row.year, (yearTotals.get(row.year) || 0) + row.count);
       genreTotals.set(row.genre, (genreTotals.get(row.genre) || 0) + row.count);
     });
-    const genres = [...genreTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, selectedGenre === "all" ? GENRE_SHARE_LIMIT : 1).map(([genre]) => genre);
+    const genres = [...genreTotals.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, GENRE_SHARE_LIMIT)
+      .map(([genre]) => genre);
     const rowMap = new Map(scopedRows.map((row) => [`${row.genre}|${row.year}`, row.count]));
     return {
       years,
@@ -1446,7 +1453,7 @@ export default function PopCultureArchive() {
         })),
       })),
     };
-  }, [movieGenreYears, activeYearStart, activeYearEnd, selectedGenre]);
+  }, [movieGenreYears, activeYearStart, activeYearEnd]);
 
   const movieRatingDistributions = useMemo(() => {
     return DECADES.map((decade) => {
@@ -1601,7 +1608,7 @@ export default function PopCultureArchive() {
   const movieShareInsight = useMemo(() => {
     if (mode !== "movies" || movieShareSeries.series.length === 0) return "";
     const leader = movieShareSeries.series.map((item) => ({ name: item.name, avgShare: item.points.reduce((sum, point) => sum + point.share, 0) / (item.points.length || 1) })).sort((a, b) => b.avgShare - a.avgShare)[0];
-    return `${leader.name} has the largest smoothed share in this view; click a color band or legend item to isolate a genre.`;
+    return `${leader.name} has the largest smoothed share in this view; click a color band to filter all other charts by that genre.`;
   }, [mode, movieShareSeries]);
 
   const ratingDistributionInsight = useMemo(() => {
