@@ -1,4 +1,5 @@
-//merged version - 3 june
+// data visualisation project
+// group C
 
 import { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
@@ -41,6 +42,7 @@ const BILLBOARD_DATASET_URLS = Object.values(import.meta.glob("../dataset/billbo
   import: "default",
 })).sort();
 
+// check for christmas songs to filter out for clear results on that certain year
 function isChristmasSong(song) {
   const christmasKeywords = [
     "christmas", "jingle", "sleigh", "santa", "holly", "mistletoe", 
