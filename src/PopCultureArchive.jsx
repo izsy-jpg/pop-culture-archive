@@ -1266,7 +1266,7 @@ export default function PopCultureArchive() {
   const [songs, setSongs] = useState([]);
   const [movieGenreYears, setMovieGenreYears] = useState([]);
   const [loadState, setLoadState] = useState("loading");
-  // FROM FRIEND: displayLimit for load more
+  // displayLimit for load more
   const [displayLimit, setDisplayLimit] = useState(RESULT_LIMIT);
 
   useEffect(() => {
@@ -1305,7 +1305,7 @@ export default function PopCultureArchive() {
     loadData();
   }, []);
 
-  // FROM FRIEND: reset displayLimit when query/mode changes
+  // reset displayLimit when query/mode changes
   useEffect(() => {
     setDisplayLimit(RESULT_LIMIT);
   }, [searchQuery, mode]);
@@ -1330,7 +1330,7 @@ export default function PopCultureArchive() {
       if (mode === "songs" && removeChristmasSongs && isChristmasSong(item)) return false;
       if (q) {
         if (mode === "songs") {
-          // FROM FRIEND: partial match for songs (includes instead of exact)
+          // partial match for songs (includes instead of exact)
           if (!item.title.toLowerCase().includes(q) && !item.artist.toLowerCase().includes(q)) return false;
         } else {
           const searchable = [item.title, item.artist, item.director, item.genre, ...(item.genres || [])].filter(Boolean).join(" ").toLowerCase();
@@ -1556,7 +1556,7 @@ export default function PopCultureArchive() {
 
   const maxDecadeCount = Math.max(...decadeCounts.map((item) => item.count), 1);
 
-  // FROM FRIEND: better topItem and topResults for songs
+  // better topItem and topResults for songs
   const topItem = mode === "movies"
     ? [...qualifiedTopMovies].sort((a, b) => b.rating - a.rating || b.votes - a.votes)[0]
     : mode === "songs"
@@ -1596,7 +1596,7 @@ export default function PopCultureArchive() {
       .slice(0, RESULT_LIMIT);
   }, [songs, removeChristmasSongs]);
 
-  // FROM FRIEND: avgRating and songMatch
+  // avgRating and songMatch
   const avgRating = mode === "movies"
     ? (filtered.reduce((sum, item) => sum + item.rating, 0) / (filtered.length || 1)).toFixed(1)
     : null;
@@ -1746,7 +1746,7 @@ export default function PopCultureArchive() {
             ))}
           </div>
 
-          {/* FROM FRIEND: songMatch detail cards + avgRating */}
+          {/* : songMatch detail cards + avgRating */}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 28 }}>
             {songMatch ? (
               <>
@@ -1840,7 +1840,7 @@ export default function PopCultureArchive() {
                 {filtered.length === 0
                   ? <div style={{ color: "#666680", fontSize: 13 }}>No results match your filters.</div>
                   : topResults.map((item) => <SearchResult key={`${mode}-${item.title}-${item.artist || item.year}`} item={item} mode={mode} />)}
-                {/* FROM FRIEND: Load more / Show less buttons */}
+                {/*: Load more / Show less buttons */}
                 <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
                   {filtered.length > displayLimit && (
                     <button onClick={() => setDisplayLimit(limit => limit + RESULT_LIMIT)}
